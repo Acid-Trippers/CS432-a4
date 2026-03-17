@@ -1,3 +1,2 @@
 # CS432-a2
-This is the repository for CS 432 Assignment
-Ujas bol raha hai isliye ek au line daal di
+Repository for CS432 Databases Assignment 2 - Autonomous Normalization & CRUD Engine Hybrid Database Framework
