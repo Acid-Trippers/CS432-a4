@@ -32,20 +32,42 @@ async def fetch_data(num):
     url = f"http://127.0.0.1:8000/record/{num}"
     print(f"[*] Ingestion started: Requesting {num} records from API...")
 
+    new_records = []
     try:
         async with httpx.AsyncClient(timeout = None) as client:
             async with client.stream("GET", url) as response:
                 async for line in response.aiter_lines():
                     if line.startswith("data: "):
                         record_json = line[6:]  # Remove "data: " prefix
-                        with open(Data_file, 'a') as f:
-                            f.write(record_json + '\n')
-                        fetched_now += 1
-                        if fetched_now % 100 == 0:
-                            print(f"[*] Fetched {fetched_now} records so far...")
+                        try:
+                            record = json.loads(record_json)
+                            new_records.append(record)
+                            fetched_now += 1
+                            if fetched_now % 100 == 0:
+                                print(f"[*] Fetched {fetched_now} records so far...")
+                        except json.JSONDecodeError:
+                            print(f"[!] Warning: Failed to parse record: {record_json}")
+
+                # Load existing records if file exists
+                existing_records = []
+                if os.path.exists(Data_file):
+                    try:
+                        with open(Data_file, 'r') as f:
+                            content = f.read().strip()
+                            if content:
+                                existing_records = json.loads(content)
+                    except (json.JSONDecodeError, IOError) as e:
+                        print(f"[!] Warning: Could not read existing data from {Data_file}: {e}")
+                        existing_records = []
+                
+                # Append new records and save back as a JSON array
+                existing_records.extend(new_records)
+                with open(Data_file, 'w') as f:
+                    json.dump(existing_records, f, indent=4)
+
                 update_total = curr_total + fetched_now
                 increment_counter(update_total)
-                print(f"[*] Ingestion completed: Total records fetched now {update_total}.")
+                print(f"[*] Ingestion completed: {fetched_now} records added. Total now {update_total}.")
     except httpx.ConnectError:
         print("[!] Error: Connection failed. Is app.py running?")
     except Exception as e:

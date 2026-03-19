@@ -90,16 +90,19 @@ def run_cleaning_pipeline():
     cleaner = DataCleaner()
     all_cleaned_records = []
 
-    with open(RECEIVED_DATA_FILE, 'r') as f:
-        for line in f:
-            if not line.strip(): 
-                continue
+    try:
+        with open(RECEIVED_DATA_FILE, 'r') as f:
+            all_raw_records = json.load(f)
+            
+        for raw_record in all_raw_records:
             try:
-                raw_record = json.loads(line)
                 cleaned_record = cleaner.clean_record(raw_record)
                 all_cleaned_records.append(cleaned_record)
             except Exception as e:
                 print(f"[!] Error cleaning record: {e}")
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"[!] Error reading input file: {e}")
+        return
 
     with open(CLEANED_DATA_FILE, 'w') as f:
         json.dump(all_cleaned_records, f, indent=4)

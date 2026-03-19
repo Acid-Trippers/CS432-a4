@@ -143,9 +143,11 @@ def run_data_analysis():
     if os.path.exists(INPUT_FILE):
         records = []
         with open(INPUT_FILE, 'r') as f:
-            for line in f:
-                if line.strip():
-                    records.append(json.loads(line))
+            try:
+                records = json.load(f)
+            except json.JSONDecodeError as e:
+                print(f"[!] Error: {INPUT_FILE} is not a valid JSON file: {e}")
+                return
         
         if not records:
             print(f"No records found in {INPUT_FILE}.")
