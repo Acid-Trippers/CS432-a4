@@ -1,7 +1,0 @@
-{
-    "name": {
-        "type": "string",
-        "unique": false,
-        "not_null": true
-    }
-}

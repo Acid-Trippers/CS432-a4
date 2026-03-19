@@ -7,7 +7,7 @@ import time
 import sys
 import os
 import shutil
-from src.config import RECEIVED_DATA_FILE, COUNTER_FILE, INITIAL_SCHEMA_FILE, METADATA_FILE
+from src.config import *
 
 def run_script(script_name, args = None):
     """Helper to run teammate's scripts or ingestion.py."""
@@ -47,7 +47,7 @@ async def main():
     try:
         if args.command == 'initialise':
             # Wipe local storage
-            files_to_clean = [RECEIVED_DATA_FILE, COUNTER_FILE, INITIAL_SCHEMA_FILE]
+            files_to_clean = [RECEIVED_DATA_FILE, COUNTER_FILE, INITIAL_SCHEMA_FILE, METADATA_MANAGER_FILE, ANALYZED_SCHEMA_FILE, FIELD_METADATA_FILE, NORMALIZED_DATA_FILE, CLEANED_DATA_FILE, BUFFER_FILE]
             for f in files_to_clean:
                 if os.path.exists(f):
                     os.remove(f)
