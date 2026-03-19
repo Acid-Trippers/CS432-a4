@@ -3,7 +3,7 @@ import os
 import json
 from typing import Dict, Any, List
 from collections import defaultdict
-from config import DATA_DIR, CLEANED_DATA_FILE, ANALYZED_DATA_FILE
+from config import DATA_DIR, CLEANED_DATA_FILE, METADATA_MANAGER_FILE
 
 
 class DataAnalyzer:
@@ -89,7 +89,7 @@ class DataAnalyzer:
             for k, v in record.items():
                 self._analyze_recursive(k, v, 0) 
 
-    def save_analysis(self, output_file: str = ANALYZED_DATA_FILE):
+    def save_analysis(self, output_file: str = METADATA_MANAGER_FILE):
         # Create /data folder if doesn't already exist
         if not os.path.exists(DATA_DIR):
             os.makedirs(DATA_DIR)
@@ -138,7 +138,7 @@ class DataAnalyzer:
     
 def run_data_analysis():
     INPUT_FILE = CLEANED_DATA_FILE
-    ANALYSIS_FILE = ANALYZED_DATA_FILE
+    ANALYSIS_FILE = METADATA_MANAGER_FILE
     
     if os.path.exists(INPUT_FILE):
         records = []

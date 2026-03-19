@@ -1,7 +1,7 @@
 """
 Field Classification Module
 Purpose: Classify fields as SQL, Mongo, or Unknown based on:
-  1. Data analysis metrics (from analyzed_data.json)
+  1. Data analysis metrics (from metadata_manager.json)
   2. User-defined schema constraints (from initial_schema.json)
   3. Type stability, structure complexity, and sparsity
 
@@ -15,7 +15,7 @@ import json
 import os
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
-from config import DATA_DIR, ANALYZED_DATA_FILE
+from config import DATA_DIR, METADATA_MANAGER_FILE
 
 # Thresholds for SQL suitability
 SQL_CRITERIA = {
@@ -282,14 +282,14 @@ def load_user_schema(schema_file: str = None) -> Dict[str, UserSchema]:
 def runPipeline():
     """
     Main classification pipeline:
-    1. Load analyzed_data.json (system analysis)
+    1. Load metadata_manager.json (system analysis)
     2. Load initial_schema.json (user-defined constraints)
     3. Classify each field as SQL, Mongo, or Unknown
     4. Save results to field_metadata.json
     """
     
     # Load analyzed data
-    with open(ANALYZED_DATA_FILE, 'r', encoding='utf-8') as f:
+    with open(METADATA_MANAGER_FILE, 'r', encoding='utf-8') as f:
         analyzed_data = json.load(f)
     
     # Load user-defined schema (optional)
