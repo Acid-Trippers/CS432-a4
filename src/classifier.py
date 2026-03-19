@@ -363,10 +363,10 @@ def runPipeline():
     if unknown_fields:
         print(f"\n[!] {len(unknown_fields)} field(s) classified as UNKNOWN - review required:\n")
         for field_result in unknown_fields:
-            print(f"  📌 {field_result['fieldName']}")
-            print(f"     Reason: {field_result['reason']}")
-            print(f"     SQL Score: {field_result['sql_score']:.3f}")
-            print(f"     Mongo Score: {field_result['mongo_score']:.3f}")
+            print(f"  {field_result['fieldName']}")
+            print(f"   Reason: {field_result['reason']}")
+            print(f"   SQL Score: {field_result['sql_score']:.3f}")
+            print(f"   Mongo Score: {field_result['mongo_score']:.3f}")
             print()
 
 
