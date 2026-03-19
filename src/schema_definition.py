@@ -1,81 +1,83 @@
-VALID_TYPES = ["string", "int", "float", "bool", "json", "array_int", "array_string", "array_float", "array_bool"]
-
 import json
 import os
 import sys
 from config import INITIAL_SCHEMA_FILE
 
+# Base types
+PRIMITIVES = ["string", "int", "float", "bool"]
+
+def get_field_details(field_name, depth=0):
+    """Recursively defines the structure to mirror the real JSON layout."""
+    indent = "  " * depth
+    print(f"\n{indent}--- Configuring: {field_name} ---")
+    print(f"{indent}Options: {', '.join(PRIMITIVES)}, json, array")
+    
+    while True:
+        dtype = input(f"{indent}Select type: ").strip().lower()
+        
+        # CASE 1: JSON (Object) -> Stores as a dictionary
+        if dtype == "json":
+            nested_obj = {}
+            print(f"{indent}Defining internal fields for '{field_name}' (type 'done' to exit level):")
+            while True:
+                child_name = input(f"{indent}  Child field name: ").strip()
+                if child_name.lower() == 'done': break
+                nested_obj[child_name] = get_field_details(child_name, depth + 1)
+            return nested_obj
+
+        # CASE 2: Array -> Stores as a single-item list [type_or_structure]
+        elif dtype == "array":
+            print(f"{indent}What is inside this array?")
+            inner_content = get_field_details(f"{field_name}[]", depth + 1)
+            return [inner_content]
+
+        # CASE 3: Primitives -> Stores as the type name string
+        elif dtype in PRIMITIVES:
+            # We skip unique/not_null here to keep the file as a "pure" structure template.
+            # If you need those, we'd store them as "string|unique|not_null" 
+            return dtype
+        
+        else:
+            print(f"{indent}[!] Invalid selection. Choose from {PRIMITIVES}, json, or array.")
+
 def get_guided_input():
     schema = {}
-    print("\n--- Guided Schema Entry ---")
-    print("Enter fields in the format: name,type,unique(y/n),not_null(y/n)")
-    print("Valid types: string, int, float, bool, json, array_int, array_string, array_float, array_bool")
-    print("Example: user_id,int,y,y")
-    print("Type 'done' when finished.\n")
+    print("\n--- Recursive Schema Builder (Structure Mode) ---")
+    print("Define your fields. This will generate a representative template.")
 
     while True:
-        entry = input(f"Field {len(schema) + 1}: ").strip().lower()
-        if entry == 'done':
-            if not schema:
-                print("[!] You must define at least one field.")
-                continue
+        field_name = input("\nTop-level Field Name (or 'done'): ").strip()
+        if field_name.lower() == 'done':
+            if not schema: continue
             break
         
-        try:
-            parts = [p.strip() for p in entry.split(",")]
-            if len(parts) != 4:
-                print("[!] Invalid format. Expected: name,type,unique,not_null")
-                continue
-
-            name, dtype, uniq, nn = parts
-            
-            if dtype not in VALID_TYPES:
-                print(f"[!] Invalid type. Choose from: {', '.join(VALID_TYPES)}")
-                continue
-
-            if uniq not in ['y', 'n'] or nn not in ['y', 'n']:
-                print("[!] unique and not_null must be 'y' or 'n'")
-                continue
-
-            schema[name] = {
-                "type": dtype,
-                "unique": uniq == 'y',
-                "not_null": nn == 'y'
-            }
-        except Exception as e:
-            print(f"[!] Error: {e}. Try again.")
+        schema[field_name] = get_field_details(field_name)
 
     return schema
 
-import json
-
 def get_pasted_json():
     print("\n--- JSON Paste Mode ---")
-    print("Paste your JSON schema below. When finished, press Enter, then Ctrl+D (Linux/Mac) or Ctrl+Z (Windows) and Enter.")
+    print("Paste your JSON schema. Press Enter, then Ctrl+D (Linux/Mac) or Ctrl+Z (Windows) and Enter.")
     print("--------------------------------------------------")
-    
     try:
-        # This reads the entire block of text from the clipboard/terminal
         raw_data = sys.stdin.read() 
-        data = json.loads(raw_data)
-        return data
+        return json.loads(raw_data)
     except json.JSONDecodeError as e:
-        print(f"\n[!] Invalid JSON format: {e}")
+        print(f"\n[!] Invalid JSON: {e}")
         return None
 
 def main():
     print("=== Database Pipeline Setup ===")
-    print("1. Guided Entry (name,type,unique,not_null)")
+    print("1. Recursive Guided Entry (Handles Nesting)")
     print("2. Paste Raw JSON")
     
     choice = input("\nSelect an option [1/2]: ").strip()
 
     if choice == '2':
-        import sys
         schema = get_pasted_json()
         if not schema:
-            print("[!] Paste failed or was empty. Falling back to Guided Entry...")
-            schema = get_guided_input() # The comma-separated version we wrote earlier
+            print("[!] Falling back to Guided Entry...")
+            schema = get_guided_input()
     else:
         schema = get_guided_input()
 
