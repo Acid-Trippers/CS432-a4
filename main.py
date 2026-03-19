@@ -35,6 +35,13 @@ async def main():
     fetch_parser = subparsers.add_parser('fetch')
     fetch_parser.add_argument('records', type=int, default=1000, help='Additional number of records to fetch from API')
 
+    if len(sys.argv) == 1:
+        print("\n[!] No command provided.")
+        print("Usage: python main.py [initialise | fetch] [records]")
+        print("Example: python main.py initialise 500\n")
+        parser.print_help()
+        return
+    
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -47,7 +54,7 @@ async def main():
     try:
         if args.command == 'initialise':
             # Wipe local storage
-            files_to_clean = [RECEIVED_DATA_FILE, COUNTER_FILE, INITIAL_SCHEMA_FILE, METADATA_MANAGER_FILE, ANALYZED_SCHEMA_FILE, FIELD_METADATA_FILE, NORMALIZED_DATA_FILE, CLEANED_DATA_FILE, BUFFER_FILE]
+            files_to_clean = [RECEIVED_DATA_FILE, COUNTER_FILE, METADATA_MANAGER_FILE, ANALYZED_SCHEMA_FILE, FIELD_METADATA_FILE, NORMALIZED_DATA_FILE, CLEANED_DATA_FILE, BUFFER_FILE]
             for f in files_to_clean:
                 if os.path.exists(f):
                     os.remove(f)
@@ -62,14 +69,13 @@ async def main():
             # Step B: Get first batch of data (Your worker)
             run_script("ingestion", [str(args.records)])
 
-            print(f"[*] Calibration complete. Running Analyzer on {args.records} records...")
+            print(f"[*] Records ingested. Running Analyzer on {args.records} records...")
             # run_script("analyzer")   <-- This creates analyzed_schema.json
-            # run_script("validation") <-- This compares Initial vs Analyzed and creates metadata.json
             
             print("[+] System is now fully initialized and metadata.json is finalized.")
 
         elif args.command == 'fetch':
-            if not os.path.exists(METADATA_FILE):
+            if not os.path.exists(METADATA_MANAGER_FILE):
                 print("[X] ERROR: No metadata found. You must run 'initialise' first to calibrate the system.")
                 return
 
