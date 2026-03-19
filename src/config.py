@@ -8,6 +8,7 @@ DATA_DIR = os.path.join(ROOT_DIR, "data")
 
 # JSON File Paths
 RECEIVED_DATA_FILE = os.path.join(DATA_DIR, "received_data.json")
+CLEANED_DATA_FILE = os.path.join(DATA_DIR, "cleaned_data.json")
 NORMALIZED_DATA_FILE = os.path.join(DATA_DIR, "normalized_data.json")
 ANALYZED_DATA_FILE = os.path.join(DATA_DIR, "analyzed_data.json")
 INITIAL_SCHEMA_FILE = os.path.join(DATA_DIR, "initial_schema.json")

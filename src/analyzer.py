@@ -3,7 +3,7 @@ import os
 import json
 from typing import Dict, Any, List
 from collections import defaultdict
-from config import DATA_DIR, NORMALIZED_DATA_FILE, ANALYZED_DATA_FILE, RECEIVED_DATA_FILE
+from config import DATA_DIR, CLEANED_DATA_FILE, ANALYZED_DATA_FILE
 
 
 class DataAnalyzer:
@@ -137,7 +137,7 @@ class DataAnalyzer:
 
     
 def run_data_analysis():
-    INPUT_FILE = RECEIVED_DATA_FILE
+    INPUT_FILE = CLEANED_DATA_FILE
     ANALYSIS_FILE = ANALYZED_DATA_FILE
     
     if os.path.exists(INPUT_FILE):
