@@ -55,7 +55,7 @@ async def main():
         if args.command == 'initialise':
             # Wipe local storage
             files_to_clean = [
-                INITIAL_SCHEMA_FILE, COUNTER_FILE, RECEIVED_DATA_FILE, 
+                COUNTER_FILE, RECEIVED_DATA_FILE, 
                 CLEANED_DATA_FILE, BUFFER_FILE, ANALYZED_SCHEMA_FILE, 
                 METADATA_FILE
             ]

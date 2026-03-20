@@ -23,7 +23,6 @@ DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
 
 # Other data files
 COUNTER_FILE = os.path.join(DATA_DIR, "counter.txt")
-BUFFER_FILE = os.path.join(DATA_DIR, "buffer.txt")
 
 # Ensure data directory exists
 os.makedirs(DATA_DIR, exist_ok=True)
