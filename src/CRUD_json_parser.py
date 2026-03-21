@@ -1,5 +1,5 @@
 import json
-from .config import QUERY_FILE, METADATA_FILE
+from .config import QUERY_FILE, METADATA_FILE, QUERY_OUTPUT_FILE
 from src.CRUD_runner import create_operation, read_operation, update_operation, delete_operation
 
 def query_parser():
@@ -66,6 +66,22 @@ def analyze_query_databases(parsed_query):
     filters = parsed_query.get("filters", {})
     field_map = get_field_locations()
     
+    # If no filters, query all databases (for READ operations)
+    if not filters:
+        print(f"\n--- FIELD LOCATIONS ---")
+        print("No filters specified - will query all databases")
+        
+        # Determine which databases to query - query all for safety
+        databases_needed = ["SQL", "MongoDB", "Unknown"]
+        
+        print(f"\n--- DATABASES NEEDED ---")
+        print(f"Databases: {', '.join(databases_needed)}")
+        
+        return {
+            "field_locations": {},
+            "databases_needed": databases_needed
+        }
+    
     # Categorize each filter field by its database
     field_locations = {}
     for field_name in filters.keys():
@@ -96,19 +112,34 @@ def query_checker():
         db_analysis = analyze_query_databases(parsed_query)
         print(f"\nAnalysis Result: {db_analysis}")
         
-    match parsed_query["operation"]:
-        case "CREATE":
-            create_operation(parsed_query, db_analysis)
-            print("Sucess")
-        case "READ":
-            read_operation(parsed_query, db_analysis)
-            print("Sucess")
-        case "UPDATE":
-            update_operation(parsed_query, db_analysis)
-            print("Sucess")
-        case "DELETE":
-            delete_operation(parsed_query, db_analysis)
-            print("Sucess")
+        operation = parsed_query.get("operation")
+        result = None
+        
+        if operation == "CREATE":
+            result = create_operation(parsed_query, db_analysis)
+        elif operation == "READ":
+            result = read_operation(parsed_query, db_analysis)
+        elif operation == "UPDATE":
+            result = update_operation(parsed_query, db_analysis)
+        elif operation == "DELETE":
+            result = delete_operation(parsed_query, db_analysis)
+        
+        # Save result to query_output.json
+        if result:
+            try:
+                with open(QUERY_OUTPUT_FILE, 'w') as f:
+                    json.dump(result, f, indent=2, default=str)
+                print(f"[SAVED] Query output saved to {QUERY_OUTPUT_FILE}")
+            except Exception as e:
+                print(f"[ERROR] Failed to save query output: {e}")
+        
+        # Print the result in formatted JSON
+        if result:
+            print(f"\n{'='*60}")
+            print("[FINAL RESULT]")
+            print(f"{'='*60}")
+            print(json.dumps(result, indent=2, default=str))
+            print(f"{'='*60}\n")
 
 if __name__ == "__main__":
     query_checker()

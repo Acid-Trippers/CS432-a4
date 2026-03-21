@@ -12,10 +12,11 @@ def validate_structure(data, path="root"):
         raise ValueError(f"CRUD request cannot be empty at '{path}'.")
     
     # Validate required fields
-    required = ["operation", "entity"]
-    for field in required:
-        if field not in data:
-            raise ValueError(f"Missing required field '{field}' at '{path}'.")
+    if "operation" not in data:
+        raise ValueError(f"Missing required field 'operation'.")
+    
+    if "entity" not in data:
+        raise ValueError(f"Missing required field 'entity'.")
     
     # Validate operation
     valid_operations = ["CREATE", "READ", "UPDATE", "DELETE"]
@@ -24,32 +25,41 @@ def validate_structure(data, path="root"):
     
     # Validate entity
     if not isinstance(data["entity"], str) or not data["entity"]:
-        raise ValueError(f"Field 'entity' must be a non-empty string at '{path}.entity'.")
+        raise ValueError(f"Field 'entity' must be a non-empty string.")
     
-    # Validate payload if operation is UPDATE
-    if data["operation"] == "UPDATE":
-        if "payload" not in data:
-            raise ValueError(f"UPDATE operation requires 'payload' field at '{path}'.")
-        if not isinstance(data["payload"], dict) or not data["payload"]:
-            raise ValueError(f"Field 'payload' must be a non-empty object at '{path}.payload'.")
-        
-    elif data["operation"] == "CREATE":
-        if "payload" not in data:
-            raise ValueError(f"CREATE operation requires 'payload' field at '{path}'.")
-        if not isinstance(data["payload"], dict) or not data["payload"]:
-            raise ValueError(f"Field 'payload' must be a non-empty object at '{path}.payload'.")
-        
-    elif data["operation"] == "READ":
-        if "filters" not in data:
-            raise ValueError(f"READ operation requires 'filters' field at '{path}'.")
-        if not isinstance(data["filters"], dict) or not data["filters"]:
-            raise ValueError(f"Field 'filters' must be a non-empty object at '{path}.filters'.")
+    # Validate by operation type
+    operation = data["operation"]
     
-    elif data["operation"] == "DELETE":
+    if operation == "CREATE":
+        if "payload" not in data:
+            raise ValueError(f"CREATE operation requires 'payload' field.")
+        if not isinstance(data["payload"], dict) or not data["payload"]:
+            raise ValueError(f"Field 'payload' must be a non-empty object.")
+    
+    elif operation == "READ":
+        # Filters are OPTIONAL for READ (can be empty dict or missing)
         if "filters" not in data:
-            raise ValueError(f"DELETE operation requires 'filters' field at '{path}'.")
+            data["filters"] = {}  # Add empty filters if not provided
+        elif not isinstance(data["filters"], dict):
+            raise ValueError(f"Field 'filters' must be a dict.")
+        # Empty filters are OK for READ
+    
+    elif operation == "UPDATE":
+        if "filters" not in data:
+            raise ValueError(f"UPDATE operation requires 'filters' field.")
         if not isinstance(data["filters"], dict) or not data["filters"]:
-            raise ValueError(f"Field 'filters' must be a non-empty object at '{path}.filters'.")
+            raise ValueError(f"Field 'filters' must be a non-empty object.")
+        
+        if "payload" not in data:
+            raise ValueError(f"UPDATE operation requires 'payload' field.")
+        if not isinstance(data["payload"], dict) or not data["payload"]:
+            raise ValueError(f"Field 'payload' must be a non-empty object.")
+    
+    elif operation == "DELETE":
+        if "filters" not in data:
+            raise ValueError(f"DELETE operation requires 'filters' field.")
+        if not isinstance(data["filters"], dict) or not data["filters"]:
+            raise ValueError(f"Field 'filters' must be a non-empty object.")
 
 def store_query_to_json(request):
     """Stores the validated CRUD request to query.json in the data directory."""
