@@ -1,3 +1,13 @@
+"""
+Splits the globally cleaned dataset into distinct operational payloads for disparate database engines 
+based on the final algorithmic routing decisions in the metadata playbook.
+
+- Decision Ingestion: Reads the final SQL/MONGO/UNKNOWN decisions tagged on each field from metadata.json.
+- Route Mapping: Compiles a hierarchical dictionary to identify where top-level parent keys and their entire nested structures should safely be sent.
+- Payload Fragmentation: Iterates over the master cleaned_data.json and physically splits horizontal records into three vertical shards (SQL fields, Mongo fields, Unknown fields).
+- Checkpoint Export: Serializes the fragmented data out to three independent temporary JSON files (sql_data.json, mongo_data.json, unknown_data.json) to separate database engine concerns.
+"""
+
 import json
 import os
 from typing import Dict, List
@@ -32,8 +42,11 @@ def _build_field_routes(field_metadata: List[Dict]) -> Dict[str, str]:
         if decision not in {"SQL", "MONGO", "UNKNOWN"}:
             decision = "UNKNOWN"
 
+        if field.get("is_primary_key_candidate") is True:
+            decision = "BOTH"
+
         # Keep first decision per top-level field; this stays deterministic and simple.
-        if top_level_name not in routes:
+        if top_level_name not in routes or decision == "BOTH":
             routes[top_level_name] = decision
 
     return routes
@@ -71,6 +84,9 @@ def route_data() -> None:
             if decision == "SQL":
                 sql_record[key] = value
             elif decision == "MONGO":
+                mongo_record[key] = value
+            elif decision == "BOTH":
+                sql_record[key] = value
                 mongo_record[key] = value
             else:
                 unknown_record[key] = value

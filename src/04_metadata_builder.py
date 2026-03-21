@@ -1,3 +1,14 @@
+"""
+Consolidates user-defined schema specifications with statistically analyzed fields 
+to build a unified metadata playbook for schema classification.
+
+- Schema Flattening: Transforms nested initial schemas into flat, dot-notation path mappings (e.g., parent.child).
+- Constraint Extraction: Derives intended data types (user_type) from the user's base template.
+- Metadata Merging: Injects user-defined types directly into the statistically generated fields mapped by the analyzer.
+- Buffer Identification: Flags purely discovered/unmapped variables by assigning them null constraints, instructing the classifier to rely purely on heuristics.
+- Playbook Export: Outputs the fully merged data (metadata.json) to drive downstream SQL vs. Mongo routing decisions.
+"""
+
 import json
 import os
 from src.config import INITIAL_SCHEMA_FILE, ANALYZED_SCHEMA_FILE, METADATA_FILE
@@ -23,14 +34,14 @@ def merge_metadata():
     def flatten_schema(schema_node, path=""):
         if isinstance(schema_node, dict):
             if path:
-                user_constraints[path] = {"user_type": "object", "is_required": True}
+                user_constraints[path] = {"user_type": "object"}
             for k, v in schema_node.items():
                 new_path = f"{path}.{k}" if path else k
                 flatten_schema(v, new_path)
         elif isinstance(schema_node, list) and schema_node:
             # Array itself
             if path:
-                user_constraints[path] = {"user_type": "array", "is_required": True}
+                user_constraints[path] = {"user_type": "array"}
             # Array template
             new_path = f"{path}[]"
             flatten_schema(schema_node[0], new_path)
@@ -38,8 +49,7 @@ def merge_metadata():
             # Leaf node (primitive type)
             if path:
                 user_constraints[path] = {
-                    "user_type": schema_node,
-                    "is_required": True
+                    "user_type": schema_node
                 }
 
     flatten_schema(initial_schema)

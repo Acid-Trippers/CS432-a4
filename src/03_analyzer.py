@@ -1,11 +1,13 @@
 """
-Analyzes cleaned JSON records to infer structural metadata, data types, and field statistics.
+Analyzes cleaned JSON records to infer structural metadata, data types, and statistical properties.
 
-- Recursively profiles nested JSON structures, supporting both objects and arrays
-- Detects the frequency of various data types mapped to each unique field path
-- Tracks nesting depth, parent-child path relationships, and array content types (primitive vs. object)
-- Samples unique values and measures field cardinality with memory-safe capping limits
-- Exports a comprehensive statistical analysis and schema map to a JSON file for downstream routing
+- Statistical Profiling: Calculates the appearance frequency (sparsity) of every field across all records.
+- Type Detection & Stability: Identifies the dominant data type for each field and calculates how stably it adheres to that type.
+- String Pattern Recognition: Inspects string values to detect structured formats (e.g., ddd-ddd-dddd for phone numbers).
+- Structural Mapping: Recursively walks through JSON structures to map nesting depths and parent-child field relationships.
+- Array Analysis: Distinguishes between arrays containing primitive values versus arrays of complex objects.
+- Cardinality Measurement: Samples and limits unique values to safely calculate field cardinality.
+- Schema Export: Compiles the analysis into a standardized JSON metadata file (analyzed_schema.json) for downstream routing.
 """
 
 import re
@@ -121,6 +123,8 @@ class DataAnalyzer:
             stability = type_val / sum(type_counts.values())
             cardinality = len(self.field_values[f]) / count if count > 0 else 0
             
+            is_primary_key_candidate = (freq == 1.0 and cardinality == 1.0)
+            
             fields_summary.append({
                 'field_name': f,
                 'parent_path': self.parent_paths[f],
@@ -129,6 +133,7 @@ class DataAnalyzer:
                 'dominant_type': dom_type,
                 'type_stability': stability,
                 'cardinality': cardinality,
+                'is_primary_key_candidate': is_primary_key_candidate,
                 'is_cardinality_capped': self.is_cardinality_capped[f],
                 'is_nested': self.is_nested[f],
                 'is_array': self.is_array[f],

@@ -6,8 +6,6 @@ Loads the incoming raw JSON data (received_data.json) and structurally aligns it
 - Value Sanitization: Strips whitespaces from strings and converts purely empty strings to `None`.
 - Type Casting: Attempts to gracefully cast incoming values to the native types dictated by the template 
    schema (int, float, bool, str) while letting values safely pass through if casting fails.
-- Schema Padding: Injects trailing fields from the schema that are completely absent in the 
-   data payload, forcing them to `null` or empty equivalents.
 - Quarantine (Buffering) & Lossless Ripping: Captures unmapped extraneous fields into a secondary 
    quarantine file (buffer.json) for auditing, while still retaining them recursively 
    in the output `cleaned_data.json` to guarantee zero data loss.
@@ -190,8 +188,9 @@ def run_cleaning_pipeline():
         for i, raw_record in enumerate(all_raw_records):
             try:
                 # Use sys_ingested_time or index as temporary ID for the buffer
-                record_id = raw_record.get("id", raw_record.get("_id", f"idx_{i}"))
-                cleaned_record = cleaner.clean_recursive(raw_record, cleaner.schema, record_id)
+                parent_id = raw_record.get("id", raw_record.get("_id", f"idx_{i}"))
+                cleaned_record = cleaner.clean_recursive(raw_record, cleaner.schema, parent_id)
+                cleaned_record["record_id"] = i  # Add a unique primary key across datasets
                 all_cleaned_records.append(cleaned_record)
             except Exception as e:
                 print(f"[!] Error cleaning record {i}: {e}")

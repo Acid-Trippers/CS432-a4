@@ -1,9 +1,11 @@
 """
-Field Classification Module (Refined Version)
-Logic: 
-  1. Statistical Merit: SQL if Stable (>=95%) AND Dense (>=70%).
-  2. The Unknown Gate: UNKNOWN if Frequency < 10%.
-  3. Structural Pruning: If Depth > 2, the field and ALL children go to MONGO.
+Evaluates merged schema metadata to algorithmically route each field mechanism into the optimal 
+database pipeline (SQL, MongoDB, or Quarantine/Unknown).
+
+- Statistical Triage (Pass 1): Grades fields based purely on historical density. Stable, dense variables (>50% frequency, 100% type stability) are tentatively marked for SQL. Unstable or highly sparse data is slated for Mongo.
+- Anomaly Quarantine: Catches extreme outlier fields (e.g., <1% frequency) and forces them into an UNKNOWN buffer state for manual review.
+- Structural Pruning (Pass 2): Limits relational complexity by automatically exiling any deeply nested components (Depth > 2) and all of their children straight into the Mongo document pipeline, overriding initial statistical scores.
+- Final Designation: Embeds the ultimate routing choice and confidence justification back into the metadata.json file to dictate actual Database table generation.
 """
 
 import json
@@ -93,31 +95,64 @@ def runPipeline():
         # Store in dict for Phase 2 lookups
         field_dict[field['field_name']] = field
 
-    # --- PASS 2: STRUCTURAL PRUNING (DEPTH > 2) ---
-    # Logic: If a field is deep, it and its children are forced to MONGO.
+    # --- PASS 2: STRUCTURAL DELINEATION (DEEP NESTING) ---
+    # Logic: If a field contains more than 2 levels of nesting *inside it*, 
+    # the entire field and ALL of its children are routed to MONGO to prevent fragmenting 
+    # deep documents across SQL tables.
+    
+    # First, calculate the maximum depth of any descendant for each field
+    max_descendant_depth = {}
     for field in analyzed_data['fields']:
-        depth = field.get('nesting_depth', 0)
         path = field['field_name']
-
-        # Check if the field itself is too deep
-        if depth > 2:
-            field['decision'] = "MONGO"
-            field['reason'] = f"Exiled: Nesting Depth {depth} > 2"
-            field['confidence'] = 1.0
-            continue
-
-        # Check if any part of the parent path was already exiled due to depth
-        # Example: if 'a.b.c' is Depth 3, then 'a.b.c.d' must also be Mongo.
+        depth = field.get('nesting_depth', 0)
+        
+        # Every field is its own descendant of depth `depth`
+        max_descendant_depth[path] = depth
+        
+        # Update your parents' max depths
         parts = path.split('.')
+        # Handle array brackets in paths (if any) while resolving parents
+        # This simple loop registers the max depth backwards up the chain
         for i in range(1, len(parts)):
             parent_path = ".".join(parts[:i])
-            parent_meta = field_dict.get(parent_path)
+            parent_path_no_array = parent_path.replace('[]', '')
             
-            if parent_meta and parent_meta.get('nesting_depth', 0) > 2:
-                field['decision'] = "MONGO"
-                field['reason'] = f"Inherited Exile from deep parent ({parent_path})"
-                field['confidence'] = 1.0
-                break
+            # Simple parent substring matching
+            for p in field_dict:
+                if path.startswith(p):
+                    max_descendant_depth[p] = max(max_descendant_depth.get(p, 0), depth)
+
+    # Now apply the Mongo exile rule top-down
+    for field in analyzed_data['fields']:
+        path = field['field_name']
+        depth = field.get('nesting_depth', 0)
+        max_depth = max_descendant_depth.get(path, depth)
+        
+        internal_nesting_levels = max_depth - depth
+        
+        # 1. Does this field have > 2 levels of nesting INSIDE it?
+        if internal_nesting_levels > 2:
+            field['decision'] = "MONGO"
+            field['reason'] = f"Exiled: Contains {internal_nesting_levels} levels of deep nesting"
+            field['confidence'] = 1.0
+            continue
+            
+        # 2. Is this field a child of something that was already exiled to Mongo?
+        # Check parents to see if they were forced into Mongo
+        inherited_exile = False
+        for p_path, p_meta in field_dict.items():
+            if path != p_path and path.startswith(p_path):
+                # If the parent was exiled to Mongo due to deep nesting
+                p_internal_levels = max_descendant_depth.get(p_path, p_meta.get('nesting_depth', 0)) - p_meta.get('nesting_depth', 0)
+                if p_internal_levels > 2:
+                    field['decision'] = "MONGO"
+                    field['reason'] = f"Inherited Exile from deep parent object ({p_path})"
+                    field['confidence'] = 1.0
+                    inherited_exile = True
+                    break
+        
+        if inherited_exile:
+            continue
 
     # --- FINAL SUMMARY & OUTPUT ---
     sql_count = 0
