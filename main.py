@@ -109,7 +109,7 @@ def initialise(count=1000):
     files_to_clean = [
         COUNTER_FILE, RECEIVED_DATA_FILE, CLEANED_DATA_FILE, 
         BUFFER_FILE, ANALYZED_SCHEMA_FILE, METADATA_FILE, 
-        SQL_DATA_FILE, DATABASE_PATH, QUERY_FILE
+        SQL_DATA_FILE, QUERY_FILE
     ]
     for f in files_to_clean:
         if os.path.exists(f):
