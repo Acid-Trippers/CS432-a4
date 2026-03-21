@@ -7,7 +7,9 @@ import shutil
 import subprocess
 import sys
 import time
+import httpx
 
+import project_config
 from src.config import *
 
 schema_definition = importlib.import_module("src.00_schema_definition")
@@ -22,11 +24,43 @@ sql_engine = importlib.import_module("src.sql_engine")
 sql_pipeline = importlib.import_module("src.sql_pipeline")
 
 
+def start_docker():
+    print("[*] Starting Docker containers...")
+    subprocess.run(
+        ["docker-compose", "-f", project_config.DOCKER_COMPOSE_FILE, "up", "-d"],
+        check=True
+    )
+    # Wait for containers to be healthy
+    time.sleep(project_config.DOCKER_STARTUP_TIMEOUT)
+    print("[+] Docker containers running.")
+
+
+def stop_docker():
+    print("[*] Stopping Docker containers...")
+    subprocess.run(
+        ["docker-compose", "-f", project_config.DOCKER_COMPOSE_FILE, "down"],
+        check=True
+    )
+    print("[+] Docker containers stopped.")
+
+
 def start_api():
     """Starts the API server in a subprocess."""
     print("[*] Starting API server...")
     api_path = os.path.join("external", "app.py")
     return subprocess.Popen([sys.executable, api_path], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+
+
+def wait_for_api(timeout=project_config.API_STARTUP_TIMEOUT):
+    url = f"http://{project_config.API_HOST}:{project_config.API_PORT}/"
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            httpx.get(url, timeout=1)
+            return True
+        except Exception:
+            time.sleep(1)
+    return False
 
 
 def save_checkpoint(filepath, data, append=False):
@@ -132,10 +166,19 @@ def wait_for_server(url="http://127.0.0.1:8000/"):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage:")
-        print("  python main.py initialise [count]")
-        print("  python main.py fetch [count]")
+    command = sys.argv[1] if len(sys.argv) > 1 else project_config.DEFAULT_COMMAND
+    count = int(sys.argv[2]) if len(sys.argv) > 2 else (
+        project_config.INITIALISE_COUNT if command == "initialise" 
+        else project_config.FETCH_COUNT
+    )
+
+    start_docker()
+    api_process = start_api()
+
+    if not wait_for_api():
+        print("[X] API server failed to start.")
+        api_process.terminate()
+        stop_docker()
         sys.exit(1)
 
     command = sys.argv[1]
@@ -156,8 +199,9 @@ def main():
             print(f"Unknown command: {command}")
             sys.exit(1)
     finally:
-        print("\n[*] Shutting down API server...")
         api_process.terminate()
+        stop_docker()
+
 
 if __name__ == "__main__":
     main()
