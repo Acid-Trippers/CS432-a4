@@ -2,10 +2,7 @@ import json
 import os
 from typing import Dict, List
 
-from src.config import CLEANED_DATA_FILE, DATA_DIR
-
-
-FIELD_METADATA_FILE = os.path.join(DATA_DIR, "field_metadata.json")
+from src.config import CLEANED_DATA_FILE, DATA_DIR, METADATA_FILE
 SQL_OUTPUT_FILE = os.path.join(DATA_DIR, "sql_data.json")
 MONGO_OUTPUT_FILE = os.path.join(DATA_DIR, "mongo_data.json")
 UNKNOWN_OUTPUT_FILE = os.path.join(DATA_DIR, "unknown_data.json")
@@ -43,13 +40,15 @@ def _build_field_routes(field_metadata: List[Dict]) -> Dict[str, str]:
 
 
 def route_data() -> None:
-    if not os.path.exists(FIELD_METADATA_FILE):
-        raise FileNotFoundError(f"Missing field metadata: {FIELD_METADATA_FILE}")
+    if not os.path.exists(METADATA_FILE):
+        raise FileNotFoundError(f"Missing metadata: {METADATA_FILE}")
     if not os.path.exists(CLEANED_DATA_FILE):
         raise FileNotFoundError(f"Missing cleaned input data: {CLEANED_DATA_FILE}")
 
-    field_metadata = _read_json(FIELD_METADATA_FILE)
+    metadata = _read_json(METADATA_FILE)
     cleaned_data = _read_json(CLEANED_DATA_FILE)
+
+    field_metadata = metadata.get('fields', [])
 
     if not isinstance(field_metadata, list):
         raise ValueError("field_metadata.json must contain a list of field decisions")

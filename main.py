@@ -9,6 +9,7 @@ import sys
 import time
 
 from src.config import *
+import src.router as data_router
 
 schema_definition = importlib.import_module("src.00_schema_definition")
 ingestion = importlib.import_module("src.01_ingestion")
@@ -88,6 +89,9 @@ def initialise(count=1000):
     print("[*] Classifying Schema...")
     classifier.run_classification()
     
+    print("[*] Routing Data...")
+    data_router.route_data()
+    
     print("[*] SQL Pipeline...")
     engine = sql_engine.SQLEngine()
     sql_pipeline.run_sql_pipeline(engine)
@@ -103,6 +107,9 @@ def fetch(count=100):
     save_checkpoint(RECEIVED_DATA_FILE, raw_records, append=True)
 
     process_in_memory(raw_records, is_fetch=True)
+
+    print("[*] Routing Data...")
+    data_router.route_data()
 
     print("[*] SQL Pipeline Insert...")
     engine = sql_engine.SQLEngine()
