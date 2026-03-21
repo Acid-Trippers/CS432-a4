@@ -236,53 +236,56 @@ def runPipeline():
     
     user_schema = load_user_schema_from_metadata(analyzed_data)
     classifier = SchemaClassifier(user_schema=user_schema)
-    output_records = []
     
     sql_count = 0
     mongo_count = 0
     unknown_count = 0
     
     print("\n" + "="*100)
-    print("FIELD CLASSIFICATION RESULTS")
+    print("FIELD CLASSIFICATION RESULTS (Stage 2)")
     print("="*100)
     print(f"{'Field':<25} {'Decision':<10} {'Confidence':<12} {'Reason':<35}")
     print("-"*100)
     
-    for record in analyzed_data['fields']:
+    for field in analyzed_data['fields']:
         stats = FieldStats(
-            fieldName=record['field_name'],
-            frequency=record['frequency'],
-            dominantType=record['dominant_type'],
-            typeStability=record['type_stability'],
-            cardinality=record['cardinality'],
-            isNested=record['is_nested'],
-            isArray=record['is_array'],
-            nestingDepth=record.get('nesting_depth', 0),
-            parentPath=record.get('parent_path', None)
+            fieldName=field['field_name'],
+            frequency=field['frequency'],
+            dominantType=field['dominant_type'],
+            typeStability=field['type_stability'],
+            cardinality=field['cardinality'],
+            isNested=field['is_nested'],
+            isArray=field['is_array'],
+            nestingDepth=field.get('nesting_depth', 0),
+            parentPath=field.get('parent_path', None)
         )
         
         result = classifier.classifyField(stats)
-        output_records.append(result)
         
-        if result['decision'] == 'SQL':
+        # Update the field entry in-place with the decision
+        field['decision'] = result['decision']
+        # We can also keep some of the classification metadata if helpful, 
+        # but the user specifically asked for "decision". 
+        # I'll stick to what was requested to avoid cluttering metadata.json too much.
+        
+        if field['decision'] == 'SQL':
             sql_count += 1
-        elif result['decision'] == 'MONGO':
+        elif field['decision'] == 'MONGO':
             mongo_count += 1
         else:
             unknown_count += 1
         
-        print(f"{result['fieldName']:<25} {result['decision']:<10} {result['confidence']:<12.2f} {result['reason'].split(':')[0]:<35}")
+        print(f"{field['field_name']:<25} {field['decision']:<10} {result['confidence']:<12.2f} {result['reason'].split(':')[0]:<35}")
     
-    total_fields = len(output_records)
+    total_fields = len(analyzed_data['fields'])
     print("-"*100)
     print(f"\nSummary: SQL={sql_count}/{total_fields} | Mongo={mongo_count}/{total_fields} | Unknown={unknown_count}/{total_fields}")
     print("="*100)
     
-    output_file = os.path.join(DATA_DIR, 'field_metadata.json')
-    with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(output_records, f, indent=2)
+    with open(METADATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(analyzed_data, f, indent=4)
     
-    print(f"\n[+] Classification results saved to {output_file}")
+    print(f"\n[+] Classification decisions (Stage 2) added to {METADATA_FILE}")
 
 
 def run_classification():
