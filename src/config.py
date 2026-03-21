@@ -14,6 +14,7 @@ BUFFER_FILE = os.path.join(DATA_DIR, "buffer.json")
 ANALYZED_SCHEMA_FILE = os.path.join(DATA_DIR, "analyzed_schema.json")
 METADATA_FILE = os.path.join(DATA_DIR, "metadata.json")  # Unified metadata file for all stages
 SQL_DATA_FILE = os.path.join(DATA_DIR, "sql_data.json")
+QUERY_FILE = os.path.join(DATA_DIR, "query.json")
 
 # Database configuration
 DATABASE_PATH = os.path.join(DATA_DIR, "engine.db")
