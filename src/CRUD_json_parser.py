@@ -1,4 +1,3 @@
-
 import json
 from config import QUERY_FILE
 
@@ -8,6 +7,9 @@ def query_parser():
         with open(QUERY_FILE, 'r') as f:
             query = json.load(f)
         
+        if not query:
+            print("There is no query to execute")
+            return None
         # Extract basic fields from query
         operation = query.get("operation")  # READ, UPDATE, DELETE
         entity = query.get("entity")        # employees, departments, etc.
