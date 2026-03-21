@@ -85,8 +85,16 @@ def process_in_memory(raw_records, is_fetch=False):
     cleaned_records = []
     
     for i, record in enumerate(raw_records):
-        record_id = record.get("id", record.get("_id", f"idx_{time.time()}_{i}"))
-        cleaned_records.append(cleaner.clean_recursive(record, cleaner.schema, record_id))
+        # 1. Determine the reference ID
+        ref_id = record.get("id", record.get("_id", f"idx_{time.time()}_{i}"))
+        
+        # 2. Clean the record
+        cleaned_node = cleaner.clean_recursive(record, cleaner.schema, ref_id)
+        
+        # 3. Explicitly attach the record_id for the database pipeline
+        cleaned_node["record_id"] = i 
+        
+        cleaned_records.append(cleaned_node)
     
     save_checkpoint(CLEANED_DATA_FILE, cleaned_records, append=is_fetch)
     save_checkpoint(BUFFER_FILE, cleaner.buffer, append=is_fetch)
@@ -172,7 +180,7 @@ def main():
         else project_config.FETCH_COUNT
     )
 
-    start_docker()
+    #start_docker()
     api_process = start_api()
 
     if not wait_for_api():
@@ -200,7 +208,7 @@ def main():
             sys.exit(1)
     finally:
         api_process.terminate()
-        stop_docker()
+        #stop_docker()
 
 
 if __name__ == "__main__":
