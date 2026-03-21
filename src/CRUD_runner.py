@@ -1,8 +1,11 @@
 import json
-from .config import DATA_DIR
-from .sql_engine import SQLEngine
-from pymongo import MongoClient
 import os
+import time
+from .config import DATA_DIR, METADATA_FILE
+from .sql_engine import SQLEngine
+from .mongo_engine import determineMongoStrategy, processNode
+from pymongo import MongoClient
+from .config import DATA_DIR, METADATA_FILE, COUNTER_FILE
 
 # Initialize SQL Engine gracefully (non-blocking if PostgreSQL unavailable)
 sql_engine = SQLEngine()
@@ -182,11 +185,148 @@ def read_operation(parsed_query, db_analysis):
     return {"operation": "READ", "entity": entity, "results": results}
     
 def create_operation(parsed_query, db_analysis):
-    """Create new records."""
+    """
+    Create a new record using metadata routing:
+    Phase 1: Route fields based on metadata decisions
+    Phase 2: Insert into appropriate databases
+    """
+    
     print(f"\n{'='*60}")
-    print("[CREATE OPERATION]")
+    print("[CREATE OPERATION - MULTI-DATABASE ROUTING]")
     print(f"{'='*60}")
-    return {"operation": "CREATE", "status": "not_implemented"}
+    
+    entity = parsed_query.get("entity")
+    payload = parsed_query.get("payload", {})
+    
+    print(f"\n[DEBUG] Entity: {entity}, Payload Size: {len(payload)} fields")
+    
+    # Fetch the next sequential record_id from the global counter
+    record_id = 0
+    if os.path.exists(COUNTER_FILE):
+        try:
+            with open(COUNTER_FILE, 'r') as f:
+                record_id = int(f.read().strip() or 0)
+        except Exception as e:
+            print(f"[WARNING] Could not read counter file: {e}")
+
+    payload["record_id"] = record_id
+    print(f"[INFO] Assigned sequential record_id: {record_id}")
+
+    # Increment and save the counter for the next operation
+    try:
+        with open(COUNTER_FILE, 'w') as f:
+            f.write(str(record_id + 1))
+    except Exception as e:
+        print(f"[WARNING] Could not update counter file: {e}")
+
+    # ============================================================================
+    # PHASE 1: ROUTE PAYLOAD FIELDS
+    # ============================================================================
+    print(f"\n{'─'*60}")
+    print("[PHASE 1] Routing payload fields based on metadata...")
+    print(f"{'─'*60}")
+
+    sql_payload = {"record_id": record_id}
+    mongo_payload = {"record_id": record_id}
+    unknown_payload = {"record_id": record_id}
+    
+    try:
+        with open(METADATA_FILE, 'r') as f:
+            metadata = json.load(f)
+        fields = metadata.get("fields", [])
+        field_map = {f.get("field_name"): f.get("decision") for f in fields}
+        strategy_map = determineMongoStrategy(fields)
+    except Exception as e:
+        print(f"[WARNING] Could not load metadata, falling back to Unknown: {e}")
+        field_map = {}
+        strategy_map = {}
+
+    for key, value in payload.items():
+        if key == "record_id":
+            continue
+            
+        decision = field_map.get(key, "UNKNOWN")
+        
+        if decision in ["SQL", "BOTH"]:
+            sql_payload[key] = value
+        if decision in ["MONGO", "BOTH"]:
+            mongo_payload[key] = value
+        if decision == "UNKNOWN":
+            unknown_payload[key] = value
+            
+    print(f"[Routing] SQL: {len(sql_payload)-1} fields, MongoDB: {len(mongo_payload)-1} fields, Unknown: {len(unknown_payload)-1} fields")
+
+    # ============================================================================
+    # PHASE 2: INSERT INTO DATABASES
+    # ============================================================================
+    print(f"\n{'─'*60}")
+    print("[PHASE 2] Executing database insertions...")
+    print(f"{'─'*60}")
+
+    results = {"record_id": record_id, "inserted_into": []}
+
+    # Insert into SQL
+    if len(sql_payload) > 1:
+        if sql_available:
+            try:
+                sql_engine.insert_record(sql_payload)
+                results["inserted_into"].append("SQL")
+                print(f"[SQL] Successfully inserted record {record_id}")
+            except Exception as e:
+                results["sql_error"] = str(e)
+                print(f"[SQL] Error in insertion: {e}")
+        else:
+            print(f"[SQL] Skipped (SQL Engine not available)")
+    
+    # Insert into MongoDB
+    if len(mongo_payload) > 1:
+        try:
+            processed_mongo_record = processNode(mongo_payload, "", mongo_db, strategy_map)
+            mongo_db[entity].insert_one(processed_mongo_record)
+            results["inserted_into"].append("MongoDB")
+            print(f"[MongoDB] Successfully inserted document into '{entity}' collection")
+        except Exception as e:
+            results["mongo_error"] = str(e)
+            print(f"[MongoDB] Error in insertion: {e}")
+
+    # Insert into Unknown buffer
+    if len(unknown_payload) > 1:
+        try:
+            unknown_file = os.path.join(DATA_DIR, "unknown_data.json")
+            existing_data = []
+            
+            if os.path.exists(unknown_file):
+                with open(unknown_file, 'r') as f:
+                    try:
+                        existing_data = json.load(f)
+                    except json.JSONDecodeError:
+                        pass
+            
+            if not isinstance(existing_data, list):
+                existing_data = [existing_data] if existing_data else []
+                
+            existing_data.append(unknown_payload)
+            
+            with open(unknown_file, 'w') as f:
+                json.dump(existing_data, f, indent=2)
+                
+            results["inserted_into"].append("Unknown")
+            print(f"[Unknown] Successfully appended to unknown_data.json")
+        except Exception as e:
+            results["unknown_error"] = str(e)
+            print(f"[Unknown] Error in insertion: {e}")
+
+    print(f"\n{'='*60}")
+    print("[SUMMARY] Create Operation Completed")
+    print(f"  Inserted into: {', '.join(results['inserted_into']) if results['inserted_into'] else 'None'}")
+    print(f"{'='*60}\n")
+
+    return {
+        "operation": "CREATE",
+        "entity": entity,
+        "status": "success" if results["inserted_into"] else "failed",
+        "details": results
+    }
     
 def update_operation(parsed_query, db_analysis):
     """Update records."""
