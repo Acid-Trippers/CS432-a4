@@ -9,6 +9,9 @@ import subprocess
 import sys
 import time
 import httpx
+import socket
+import subprocess
+import time
 
 import project_config
 from src.config import *
@@ -33,24 +36,51 @@ sql_pipeline = importlib.import_module("src.phase_5.sql_pipeline")
 crud_json_reader = importlib.import_module("src.phase_6.CRUD_json_reader")
 crud_runner = importlib.import_module("src.phase_6.CRUD_runner")
 
+def wait_for_port(port, host='localhost', timeout=30):
+    """Checks if a port is open before proceeding."""
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        try:
+            with socket.create_connection((host, port), timeout=1):
+                return True
+        except (OSError, ConnectionRefusedError):
+            time.sleep(1)
+    return False
 
 def start_docker():
-    print("[*] Starting Docker containers...")
-    subprocess.run(
-        ["docker-compose", "-f", project_config.DOCKER_COMPOSE_FILE, "up", "-d"],
-        check=True
-    )
-    # Wait for containers to be healthy
-    time.sleep(project_config.DOCKER_STARTUP_TIMEOUT)
-    print("[+] Docker containers running.")
+    print("[*] Launching Docker Infrastructure (Postgres/Mongo)...")
+    try:
+        # 1. Use DEVNULL to prevent the terminal buffer from hanging on logs
+        # 2. Add 'postgres' and 'mongo' to ONLY start the DBs if they are in your Compose
+        subprocess.run(
+            ["docker-compose", "-f", project_config.DOCKER_COMPOSE_FILE, "up", "-d"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True
+        )
+        
+        print("[*] Waiting for Database Engine readiness...")
+        # Check for standard Postgres (5432) and Mongo (27017) ports
+        if wait_for_port(5432) and wait_for_port(27017):
+            print("[+] Databases are online and healthy.")
+            time.sleep(2) # Final safety buffer for internal DB initialization
+        else:
+            print("[X] Timeout: Databases failed to start. Is Docker Desktop running?")
+            sys.exit(1)
+            
+    except subprocess.CalledProcessError as e:
+        print(f"[X] Docker Compose failed to start: {e}")
+        sys.exit(1)
 
 
 def stop_docker():
     print("[*] Stopping Docker containers...")
     subprocess.run(
-        ["docker-compose", "-f", project_config.DOCKER_COMPOSE_FILE, "down"],
-        check=True
-    )
+            ["docker-compose", "-f", project_config.DOCKER_COMPOSE_FILE, "down", "--timeout", "5"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False  # Don't crash main.py if some containers are already gone
+        )
     print("[+] Docker containers stopped.")
 
 
