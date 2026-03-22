@@ -118,7 +118,7 @@ def runMongoEngine():
     print(f"  Failed Inserts     : {fail_count}")
     print(f"  Total Processed    : {success_count + fail_count}")
 
-    print(f"\nCollections in database:")
+    print(f"\nCollections in Mongo database:")
     for col in dbInstance.list_collection_names():
         count = dbInstance[col].count_documents({})
         print(f"  {col:<35} {count:>10} documents")
