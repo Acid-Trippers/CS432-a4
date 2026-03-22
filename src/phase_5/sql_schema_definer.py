@@ -21,7 +21,6 @@ Primary Key Strategy:
 
 import json
 import os
-import time
 from typing import Dict, Any, Optional
 
 try:
@@ -216,32 +215,22 @@ class SQLSchemaBuilder:
 
         self.models[table_name] = type(table_name.capitalize(), (Base,), attrs)
 
-    def _create_tables(self, max_retries: int = 5, retry_delay: int = 3):
-        """Creates tables with retry logic to handle Postgres not being ready yet."""
-        for attempt in range(max_retries):
-            try:
-                Base.metadata.create_all(self.engine)
-                print(f"[+] Database schema created at: {self.database_url}")
+    def _create_tables(self):
+        """Creates all tables in the database."""
+        Base.metadata.create_all(self.engine)
+        print(f"[+] Database schema created at: {self.database_url}")
 
-                inspector = inspect(self.engine)
-                print("\n[INFO] Created tables:")
-                for table_name in inspector.get_table_names():
-                    columns = inspector.get_columns(table_name)
-                    fks = inspector.get_foreign_keys(table_name)
-                    pk = inspector.get_pk_constraint(table_name)
-                    print(f"  {table_name}")
-                    print(f"    columns : {[col['name'] for col in columns]}")
-                    print(f"    PK      : {pk.get('constrained_columns', [])}")
-                    for fk in fks:
-                        print(f"    FK      : {fk['constrained_columns']} → {fk['referred_table']}.{fk['referred_columns']}")
-                return  # success
-
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    print(f"[!] Postgres not ready, retrying in {retry_delay}s... ({attempt + 1}/{max_retries})")
-                    time.sleep(retry_delay)
-                else:
-                    raise  # re-raise on final attempt so caller knows it failed
+        inspector = inspect(self.engine)
+        print("\n[INFO] Created tables:")
+        for table_name in inspector.get_table_names():
+            columns = inspector.get_columns(table_name)
+            fks = inspector.get_foreign_keys(table_name)
+            pk = inspector.get_pk_constraint(table_name)
+            print(f"  {table_name}")
+            print(f"    columns : {[col['name'] for col in columns]}")
+            print(f"    PK      : {pk.get('constrained_columns', [])}")
+            for fk in fks:
+                print(f"    FK      : {fk['constrained_columns']} → {fk['referred_table']}.{fk['referred_columns']}")
 
     def get_session(self):
         from sqlalchemy.orm import sessionmaker
