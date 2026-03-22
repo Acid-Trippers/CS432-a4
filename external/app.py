@@ -128,4 +128,4 @@ async def stream_records(count: int):
 #activating the API endpoint
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)  # FIX: 0.0.0.0 allows Docker containers to reach the API

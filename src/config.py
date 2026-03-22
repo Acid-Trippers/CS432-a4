@@ -20,7 +20,7 @@ QUERY_OUTPUT_FILE = os.path.join(DATA_DIR, "query_output.json")
 CHECKPOINT_FILE = os.path.join(DATA_DIR, "checkpoint.json")
 
 # Database configuration
-DATABASE_URL = os.environ.get("POSTGRES_URI", "postgresql://admin:secret@localhost:5433/cs432_db")
+DATABASE_URL = os.environ.get("POSTGRES_URI", "postgresql://admin:secret@localhost:5432/cs432_db")
 
 # MongoDB
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://admin:secret@localhost:27017/")

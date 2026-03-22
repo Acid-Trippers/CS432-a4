@@ -12,7 +12,7 @@ import os
 import httpx
 import asyncio
 import sys
-from src.config import RECEIVED_DATA_FILE, COUNTER_FILE
+from src.config import RECEIVED_DATA_FILE, COUNTER_FILE, API_HOST
 import datetime
 
 INGESTION_TIMEOUT = 30 # seconds
@@ -35,8 +35,8 @@ def increment_counter(new_counter):
 async def fetch_data(num):
     curr_total = get_counter()
     fetched_now = 0
-    url = f"http://127.0.0.1:8000/record/{num}"
-    print(f"[*] Ingestion started: Requesting {num} records from API...")
+    url = f"{API_HOST}/record/{num}"  # FIX: was hardcoded to http://127.0.0.1:8000
+    print(f"[*] Ingestion started: Requesting {num} records from {url}...")
 
     new_records = []
     try:
@@ -62,7 +62,7 @@ async def fetch_data(num):
                 print(f"[*] Ingestion completed: {fetched_now} records fetched. Total now {update_total}.")
                 return new_records
     except httpx.ConnectError:
-        print("[!] Error: Connection failed. Is app.py running?")
+        print(f"[!] Error: Connection failed. Is the API running at {API_HOST}?")
         return []
     except Exception as e:
         print(f"[!] An error occurred during ingestion: {e}")

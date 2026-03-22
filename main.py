@@ -151,26 +151,24 @@ def clean_databases():
     # 1. Clear MongoDB
     try:
         from pymongo import MongoClient
-        # Use the URI directly from config which contains your credentials
         client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000)
-        
+        client.server_info()  # ADD THIS — raises exception immediately if unreachable
         client.drop_database(MONGO_DB_NAME)
         print(f"[+] MongoDB '{MONGO_DB_NAME}' database dropped.")
     except Exception as e:
-        print(f"[!] Warning: Failed to clean MongoDB: {e}")
+        print(f"[!] Warning: MongoDB not reachable, skipping: {e}")
 
     # 2. Clear SQL
     try:
         from sqlalchemy import create_engine
         from src.phase_5.sql_schema_definer import Base
-        
-        # Use the DATABASE_URL from config 
-        engine = create_engine(DATABASE_URL)
-        
+        engine = create_engine(DATABASE_URL, connect_args={"connect_timeout": 2})  # ADD connect_timeout
+        with engine.connect():  # ADD THIS — raises exception immediately if unreachable
+            pass
         Base.metadata.drop_all(bind=engine)
         print("[+] SQL database tables dropped.")
     except Exception as e:
-        print(f"[!] Warning: Failed to clean SQL database: {e}")
+        print(f"[!] Warning: PostgreSQL not reachable, skipping: {e}")
 
 def initialise(count=1000):
     files_to_clean = [
