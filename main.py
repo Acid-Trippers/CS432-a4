@@ -10,8 +10,6 @@ import sys
 import time
 import httpx
 import socket
-import subprocess
-import time
 
 import project_config
 from src.config import *
@@ -36,53 +34,6 @@ sql_pipeline = importlib.import_module("src.phase_5.sql_pipeline")
 crud_json_reader = importlib.import_module("src.phase_6.CRUD_json_reader")
 crud_runner = importlib.import_module("src.phase_6.CRUD_runner")
 mongo_engine = importlib.import_module("src.phase_5.mongo_engine")
-
-def wait_for_port(port, host='localhost', timeout=30):
-    """Checks if a port is open before proceeding."""
-    start_time = time.time()
-    while time.time() - start_time < timeout:
-        try:
-            with socket.create_connection((host, port), timeout=1):
-                return True
-        except (OSError, ConnectionRefusedError):
-            time.sleep(1)
-    return False
-
-def start_docker():
-    print("[*] Launching Docker Infrastructure (Postgres/Mongo)...")
-    try:
-        # 1. Use DEVNULL to prevent the terminal buffer from hanging on logs
-        # 2. Add 'postgres' and 'mongo' to ONLY start the DBs if they are in your Compose
-        subprocess.run(
-            ["docker-compose", "-f", project_config.DOCKER_COMPOSE_FILE, "up", "-d"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=True
-        )
-        
-        print("[*] Waiting for Database Engine readiness...")
-        # Check for standard Postgres (5432) and Mongo (27017) ports
-        if wait_for_port(5432) and wait_for_port(27017):
-            print("[+] Databases are online and healthy.")
-            time.sleep(2) # Final safety buffer for internal DB initialization
-        else:
-            print("[X] Timeout: Databases failed to start. Is Docker Desktop running?")
-            sys.exit(1)
-            
-    except subprocess.CalledProcessError as e:
-        print(f"[X] Docker Compose failed to start: {e}")
-        sys.exit(1)
-
-
-def stop_docker():
-    print("[*] Stopping Docker containers...")
-    subprocess.run(
-            ["docker-compose", "-f", project_config.DOCKER_COMPOSE_FILE, "down", "--timeout", "5"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False  # Don't crash main.py if some containers are already gone
-        )
-    print("[+] Docker containers stopped.")
 
 
 def start_api():
@@ -180,6 +131,7 @@ def process_in_memory(raw_records, is_fetch=False):
         
     return cleaned_records
 
+
 def clean_databases():
     """Drops all SQL tables and the MongoDB database for a fresh start."""
     from src.config import MONGO_URI, MONGO_DB_NAME, DATABASE_URL
@@ -200,12 +152,12 @@ def clean_databases():
         from sqlalchemy import create_engine, text
         engine = create_engine(DATABASE_URL, connect_args={"connect_timeout": 2})
         with engine.connect() as conn:
-            # Drop all tables by querying information_schema instead of using Base.metadata
             conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
             conn.commit()
         print("[+] SQL database tables dropped.")
     except Exception as e:
         print(f"[!] Warning: PostgreSQL not reachable, skipping: {e}")
+
 
 def initialise(count=1000):
     files_to_clean = [
@@ -243,7 +195,7 @@ def initialise(count=1000):
     set_checkpoint("metadata")
 
     print("[*] Classifying Schema...")
-    classifier.run_classification(verbose = True)
+    classifier.run_classification(verbose=True)
     set_checkpoint("classify")
     
     print("[*] Routing Data...")
@@ -286,19 +238,17 @@ def fetch(count=100):
         cleaned_batch = process_in_memory(raw_records, is_fetch=True)
         
         # 3. Update Intelligence (Evolution Suite)
-        # We pass n_old and the size of this new batch (n_new)
         metadata_builder.merge_metadata(is_update=True, n_old=n_old, n_new=len(raw_records))
         classifier.run_classification(verbose=False)
 
         # 4. Route and Flush
-        # (Your updated router will clear cleaned_data.json)
         print("[*] Sharing Data...")
         batch_stats = data_router.route_data()
         
         if batch_stats:
             print(f"    >>> Batch Success: {batch_stats['sql']} records to SQL, {batch_stats['mongo']} to Mongo.")
         
-        # 5. SQL Pipeline (Optional: uncomment if needed per batch)
+        # 5. SQL Pipeline
         engine_sql = sql_engine.SQLEngine()
         sql_pipeline.run_sql_pipeline(engine_sql)
 
@@ -309,9 +259,6 @@ def fetch(count=100):
         print(f"[+] Chunk processed. Total global records: {n_old + current_batch}")
 
     print(f"[SUCCESS] Fetch complete.")
-
-
-# Removed redundant wait_for_server function
 
 
 def query():
@@ -327,6 +274,7 @@ def query():
     # 2. Parse query.json and execute the query operation across databases
     crud_runner.query_runner()
 
+
 def main():
     command = sys.argv[1] if len(sys.argv) > 1 else project_config.DEFAULT_COMMAND
     count = int(sys.argv[2]) if len(sys.argv) > 2 else (
@@ -334,15 +282,14 @@ def main():
         else project_config.FETCH_COUNT
     )
 
-    start_docker()
-    print("[*] Getting Docker environment ready...")
-    time.sleep(project_config.DOCKER_STARTUP_TIMEOUT)
+    # Docker is managed externally via starter.py
+    # Run: python starter.py start   before running main.py
+    # Run: python starter.py end     when done
     api_process = start_api()
 
     if not wait_for_api():
         print("[X] API server failed to start.")
         api_process.terminate()
-        stop_docker()
         sys.exit(1)
 
     try:
@@ -359,11 +306,8 @@ def main():
                 initialise(count)
             else:
                 print(f"[*] Resuming from last step: {last_step}")
-                # Logic to resume from specific steps could be more granular,
-                # but for now we'll just re-run from metadata if profile was done, etc.
                 if last_step == "ingest":
                     process_in_memory(json.load(open(RECEIVED_DATA_FILE)), is_fetch=False)
-                    # continue the chain...
                     metadata_builder.merge_metadata()
                     classifier.run_classification()
                     data_router.route_data()
@@ -383,7 +327,6 @@ def main():
             sys.exit(1)
     finally:
         api_process.terminate()
-        stop_docker()
 
 
 if __name__ == "__main__":
