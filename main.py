@@ -35,6 +35,7 @@ sql_engine = importlib.import_module("src.phase_5.sql_engine")
 sql_pipeline = importlib.import_module("src.phase_5.sql_pipeline")
 crud_json_reader = importlib.import_module("src.phase_6.CRUD_json_reader")
 crud_runner = importlib.import_module("src.phase_6.CRUD_runner")
+mongo_engine = importlib.import_module("src.phase_5.mongo_engine")
 
 def wait_for_port(port, host='localhost', timeout=30):
     """Checks if a port is open before proceeding."""
@@ -254,6 +255,10 @@ def initialise(count=1000):
     engine_sql = sql_engine.SQLEngine()
     sql_pipeline.run_sql_pipeline(engine_sql)
 
+    print("[*] MongoDB Pipeline...")
+    set_checkpoint("mongo")
+    mongo_engine.runMongoEngine()
+
 
 def fetch(count=100):
     if not os.path.exists(METADATA_FILE):
@@ -296,6 +301,9 @@ def fetch(count=100):
         # 5. SQL Pipeline (Optional: uncomment if needed per batch)
         engine_sql = sql_engine.SQLEngine()
         sql_pipeline.run_sql_pipeline(engine_sql)
+
+        print("[*] MongoDB Pipeline...")
+        mongo_engine.runMongoEngine()
 
         remaining -= current_batch
         print(f"[+] Chunk processed. Total global records: {n_old + current_batch}")

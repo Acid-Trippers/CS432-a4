@@ -63,11 +63,10 @@ def processMongoData(mongoData, strategyMap, dbInstance):
         mainCollection.insert_one(processedRecord)
 
 def runMongoEngine():
-    mongoUri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-    dbName = os.getenv("MONGO_DB_NAME", "cs432_db")
+    from src.config import MONGO_URI, MONGO_DB_NAME
     
-    clientInstance = MongoClient(mongoUri)
-    dbInstance = clientInstance[dbName]
+    clientInstance = MongoClient(MONGO_URI)
+    dbInstance = clientInstance[MONGO_DB_NAME]
     
     metadataPath = os.path.join("data", "metadata.json")
     mongoDataPath = os.path.join("data", "mongo_data.json")
