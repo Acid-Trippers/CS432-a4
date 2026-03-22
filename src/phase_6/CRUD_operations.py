@@ -27,7 +27,7 @@ def merge_results_by_record_id(results_by_db):
     Each record_id maps to a merged document combining fields from all sources.
     
     Input:
-        results_by_db: {"SQL": [...], "MongoDB": [...], "Unknown": [...]}
+        results_by_db: {"SQL": [...], "MONGO": [...], "Unknown": [...]}
     
     Output:
         {"record_id_1": {merged fields}, "record_id_2": {merged fields}, ...}
@@ -45,18 +45,18 @@ def merge_results_by_record_id(results_by_db):
             if "SQL" not in merged[record_id]["_source"]:
                 merged[record_id]["_source"].append("SQL")
     
-    # Process MongoDB results
-    for record in results_by_db.get("MongoDB", []):
+    # Process MONGO results
+    for record in results_by_db.get("MONGO", []):
         record_id = record.get("record_id") or record.get("_id")
         if record_id is not None:
             if record_id not in merged:
                 merged[record_id] = {}
-            # For MongoDB, convert ObjectId to string if needed
+            # For MONGO, convert ObjectId to string if needed
             mongo_record = {k: str(v) if k == "_id" else v for k, v in record.items()}
             merged[record_id].update(mongo_record)
             merged[record_id]["_source"] = merged[record_id].get("_source", [])
-            if "MongoDB" not in merged[record_id]["_source"]:
-                merged[record_id]["_source"].append("MongoDB")
+            if "MONGO" not in merged[record_id]["_source"]:
+                merged[record_id]["_source"].append("MONGO")
     
     # Process Unknown results
     for record in results_by_db.get("Unknown", []):
@@ -121,21 +121,21 @@ def read_operation(parsed_query, db_analysis):
         print(f"[SQL] Skipped (SQL Engine not available)")
         matching_record_ids["SQL"] = []
     
-    # Query MongoDB for matching record_ids
-    if "MongoDB" in databases_needed:
+    # Query MONGO for matching record_ids in UPDATE
+    if "MONGO" in databases_needed:
         try:
             collection = mongo_db[entity]
-            mongo_filters = {k: v for k, v in filters.items() if field_locations.get(k) == "MongoDB"}
+            mongo_filters = {k: v for k, v in filters.items() if field_locations.get(k) == "MONGO"}
             
-            # Important: In MongoDB, record_id is stored as _id
+            # Important: In MONGO, record_id is stored as _id
             projection = {"_id": 1}
             docs = list(collection.find(mongo_filters, projection))
             record_ids = [doc.get("_id") for doc in docs if "_id" in doc]
-            matching_record_ids["MongoDB"] = record_ids
-            print(f"[MongoDB] Found {len(record_ids)} matching record_ids: {record_ids[:5]}{'...' if len(record_ids) > 5 else ''}")
+            matching_record_ids["MONGO"] = record_ids
+            print(f"[MONGO] Found {len(record_ids)} matching record_ids: {record_ids[:5]}{'...' if len(record_ids) > 5 else ''}")
         except Exception as e:
-            print(f"[MongoDB] Error in Phase 1: {e}")
-            matching_record_ids["MongoDB"] = []
+            print(f"[MONGO] Error in Phase 1: {e}")
+            matching_record_ids["MONGO"] = []
     
     # Query Unknown for matching record_ids
     if "Unknown" in databases_needed:
@@ -190,22 +190,22 @@ def read_operation(parsed_query, db_analysis):
     else:
         results["SQL"] = []
     
-    # Fetch from MongoDB
-    if "MongoDB" in databases_needed and matching_record_ids.get("MongoDB"):
+    # Fetch from MONGO
+    if "MONGO" in databases_needed and matching_record_ids.get("MONGO"):
         try:
             collection = mongo_db[entity]
-            # Important: Use _id field for MongoDB queries since record_id is stored as _id
-            records = list(collection.find({"_id": {"$in": matching_record_ids["MongoDB"]}}))
-            results["MongoDB"] = [
+            # Important: Use _id field for MONGO queries since record_id is stored as _id
+            records = list(collection.find({"_id": {"$in": matching_record_ids["MONGO"]}}))
+            results["MONGO"] = [
                 {"record_id": r["_id"], **{k: v for k, v in r.items() if k != "_id"}}
                 for r in records
             ]
-            print(f"[MongoDB] Fetched {len(results['MongoDB'])} full documents")
+            print(f"[MONGO] Fetched {len(results['MONGO'])} full documents")
         except Exception as e:
-            print(f"[MongoDB] Error in Phase 2: {e}")
-            results["MongoDB"] = []
+            print(f"[MONGO] Error in Phase 2: {e}")
+            results["MONGO"] = []
     else:
-        results["MongoDB"] = []
+        results["MONGO"] = []
     
     # Fetch from Unknown
     if "Unknown" in databases_needed and matching_record_ids.get("Unknown"):
@@ -229,10 +229,7 @@ def read_operation(parsed_query, db_analysis):
     print(f"\n{'='*60}")
     print("[SUMMARY] Total records fetched:")
     print(f"  SQL: {len(results.get('SQL', []))}")
-    print(f"  MongoDB: {len(results.get('MongoDB', []))}")
-    print(f"  Unknown: {len(results.get('Unknown', []))}")
-    print(f"{'='*60}\n")
-    
+    print(f"  MONGO: {len(results.get('MONGO', []))}") 
     # ============================================================================
     # PHASE 3: MERGE results by record_id
     # ============================================================================
@@ -292,28 +289,30 @@ def create_operation(parsed_query, db_analysis):
     mongo_payload = {"record_id": record_id}
     unknown_payload = {"record_id": record_id}
     
+    # Use field_locations already computed by CRUD_runner to avoid routing disconnect
+    field_locations = db_analysis.get("field_locations", {})
+    # for MongoDB, we need strategy_map from metadata
+    strategy_map = {}
     try:
         with open(METADATA_FILE, 'r') as f:
             metadata = json.load(f)
         fields = metadata.get("fields", [])
-        field_map = {f.get("field_name"): f.get("decision") for f in fields}
         strategy_map = determineMongoStrategy(fields)
     except Exception as e:
-        print(f"[WARNING] Could not load metadata, falling back to Unknown: {e}")
-        field_map = {}
-        strategy_map = {}
+        print(f"[WARNING] Could not load MongoDB strategy: {e}")
 
     for key, value in payload.items():
         if key == "record_id":
             continue
             
-        decision = field_map.get(key, "UNKNOWN")
+        # Use field_locations from db_analysis for consistency
+        decision = field_locations.get(key, "Unknown")
         
-        if decision in ["SQL", "BOTH"]:
+        if decision == "SQL":
             sql_payload[key] = value
-        if decision in ["MONGO", "BOTH"]:
+        elif decision == "MONGO":
             mongo_payload[key] = value
-        if decision == "UNKNOWN":
+        else:  # "Unknown" or any other value
             unknown_payload[key] = value
             
     print(f"[Routing] SQL: {len(sql_payload)-1} fields, MongoDB: {len(mongo_payload)-1} fields, Unknown: {len(unknown_payload)-1} fields")
@@ -345,7 +344,7 @@ def create_operation(parsed_query, db_analysis):
         try:
             processed_mongo_record = processNode(mongo_payload, "", mongo_db, strategy_map)
             mongo_db[entity].insert_one(processed_mongo_record)
-            results["inserted_into"].append("MongoDB")
+            results["inserted_into"].append("MONGO")
             print(f"[MongoDB] Successfully inserted document into '{entity}' collection")
         except Exception as e:
             results["mongo_error"] = str(e)
@@ -447,21 +446,21 @@ def update_operation(parsed_query, db_analysis):
         print(f"[SQL] Skipped (SQL Engine not available)")
         matching_record_ids["SQL"] = []
     
-    # Query MongoDB for matching record_ids
-    if "MongoDB" in databases_needed:
+    # Query MONGO for matching record_ids in DELETE
+    if "MONGO" in databases_needed:
         try:
             collection = mongo_db[entity]
-            mongo_filters = {k: v for k, v in filters.items() if field_locations.get(k) == "MongoDB"}
+            mongo_filters = {k: v for k, v in filters.items() if field_locations.get(k) == "MONGO"}
             
-            # Important: In MongoDB, record_id is stored as _id
+            # Important: In MONGO, record_id is stored as _id
             projection = {"_id": 1}
             docs = list(collection.find(mongo_filters, projection))
             record_ids = [doc.get("_id") for doc in docs if "_id" in doc]
-            matching_record_ids["MongoDB"] = record_ids
-            print(f"[MongoDB] Found {len(record_ids)} matching record_ids: {record_ids[:5]}{'...' if len(record_ids) > 5 else ''}")
+            matching_record_ids["MONGO"] = record_ids
+            print(f"[MONGO] Found {len(record_ids)} matching record_ids: {record_ids[:5]}{'...' if len(record_ids) > 5 else ''}")
         except Exception as e:
-            print(f"[MongoDB] Error in Phase 1: {e}")
-            matching_record_ids["MongoDB"] = []
+            print(f"[MONGO] Error in Phase 1: {e}")
+            matching_record_ids["MONGO"] = []
     
     # Query Unknown for matching record_ids
     if "Unknown" in databases_needed:
@@ -493,17 +492,17 @@ def update_operation(parsed_query, db_analysis):
     print("[PHASE 2] Updating records by record_id...")
     print(f"{'─'*60}")
     
-    # Load metadata for field routing
+    # Use field_locations already computed by CRUD_runner to avoid routing disconnect
+    field_locations = db_analysis.get("field_locations", {})
+    # for MongoDB, we need strategy_map from metadata
+    strategy_map = {}
     try:
         with open(METADATA_FILE, 'r') as f:
             metadata = json.load(f)
         fields = metadata.get("fields", [])
-        field_map = {f.get("field_name"): f.get("decision") for f in fields}
         strategy_map = determineMongoStrategy(fields)
     except Exception as e:
-        print(f"[WARNING] Could not load metadata, falling back to Unknown: {e}")
-        field_map = {}
-        strategy_map = {}
+        print(f"[WARNING] Could not load MongoDB strategy: {e}")
     
     # Route payload fields to appropriate databases
     sql_updates = {}
@@ -514,13 +513,14 @@ def update_operation(parsed_query, db_analysis):
         if key == "record_id":
             continue
         
-        decision = field_map.get(key, "UNKNOWN")
+        # Use field_locations from db_analysis for consistency
+        decision = field_locations.get(key, "Unknown")
         
-        if decision in ["SQL", "BOTH"]:
+        if decision == "SQL":
             sql_updates[key] = value
-        if decision in ["MONGO", "BOTH"]:
+        elif decision == "MONGO":
             mongo_updates[key] = value
-        if decision == "UNKNOWN":
+        else:  # "Unknown" or any other value
             unknown_updates[key] = value
     
     print(f"[Routing] SQL: {len(sql_updates)} fields, MongoDB: {len(mongo_updates)} fields, Unknown: {len(unknown_updates)} fields")
@@ -556,23 +556,23 @@ def update_operation(parsed_query, db_analysis):
     else:
         updated_summary["SQL"] = 0
     
-    # Update MongoDB documents
-    if "MongoDB" in databases_needed and matching_record_ids.get("MongoDB") and mongo_updates:
+    # Update MONGO documents
+    if "MONGO" in databases_needed and matching_record_ids.get("MONGO") and mongo_updates:
         try:
             collection = mongo_db[entity]
             # Important: Use _id for MongoDB queries since record_id is stored as _id
             result = collection.update_many(
-                {"_id": {"$in": matching_record_ids["MongoDB"]}},
+                {"_id": {"$in": matching_record_ids["MONGO"]}},
                 {"$set": mongo_updates}
             )
-            updated_summary["MongoDB"] = result.modified_count
+            updated_summary["MONGO"] = result.modified_count
             total_updated += result.modified_count
-            print(f"[MongoDB] Updated {result.modified_count} documents with {len(mongo_updates)} fields")
+            print(f"[MONGO] Updated {result.modified_count} documents with {len(mongo_updates)} fields")
         except Exception as e:
-            print(f"[MongoDB] Error in Phase 2: {e}")
-            updated_summary["MongoDB"] = 0
+            print(f"[MONGO] Error in Phase 2: {e}")
+            updated_summary["MONGO"] = 0
     else:
-        updated_summary["MongoDB"] = 0
+        updated_summary["MONGO"] = 0
     
     # Update Unknown records
     if "Unknown" in databases_needed and matching_record_ids.get("Unknown") and unknown_updates:
@@ -608,7 +608,7 @@ def update_operation(parsed_query, db_analysis):
     print(f"\n{'='*60}")
     print("[SUMMARY] Total records updated:")
     print(f"  SQL: {updated_summary.get('SQL', 0)}")
-    print(f"  MongoDB: {updated_summary.get('MongoDB', 0)}")
+    print(f"  MONGO: {updated_summary.get('MONGO', 0)} records updated")
     print(f"  Unknown: {updated_summary.get('Unknown', 0)}")
     print(f"  TOTAL: {total_updated}")
     print(f"{'='*60}\n")
@@ -678,21 +678,21 @@ def delete_operation(parsed_query, db_analysis):
         print(f"[SQL] Skipped (SQL Engine not available)")
         matching_record_ids["SQL"] = []
     
-    # Query MongoDB for matching record_ids
-    if "MongoDB" in databases_needed:
+    # Query MONGO for matching record_ids
+    if "MONGO" in databases_needed:
         try:
             collection = mongo_db[entity]
-            mongo_filters = {k: v for k, v in filters.items() if field_locations.get(k) == "MongoDB"}
+            mongo_filters = {k: v for k, v in filters.items() if field_locations.get(k) == "MONGO"}
             
-            # Important: In MongoDB, record_id is stored as _id
+            # Important: In MONGO, record_id is stored as _id
             projection = {"_id": 1}
             docs = list(collection.find(mongo_filters, projection))
             record_ids = [doc.get("_id") for doc in docs if "_id" in doc]
-            matching_record_ids["MongoDB"] = record_ids
-            print(f"[MongoDB] Found {len(record_ids)} matching record_ids: {record_ids[:5]}{'...' if len(record_ids) > 5 else ''}")
+            matching_record_ids["MONGO"] = record_ids
+            print(f"[MONGO] Found {len(record_ids)} matching record_ids: {record_ids[:5]}{'...' if len(record_ids) > 5 else ''}")
         except Exception as e:
-            print(f"[MongoDB] Error in Phase 1: {e}")
-            matching_record_ids["MongoDB"] = []
+            print(f"[MONGO] Error in Phase 1: {e}")
+            matching_record_ids["MONGO"] = []
     
     # Query Unknown for matching record_ids
     if "Unknown" in databases_needed:
@@ -748,18 +748,18 @@ def delete_operation(parsed_query, db_analysis):
     else:
         deleted_summary["SQL"] = 0
     
-    # Delete from MongoDB
-    if "MongoDB" in databases_needed and matching_record_ids.get("MongoDB"):
+    # Delete from MONGO
+    if "MONGO" in databases_needed and matching_record_ids.get("MONGO"):
         try:
             collection = mongo_db[entity]
             # Important: Use _id for MongoDB queries since record_id is stored as _id
-            result = collection.delete_many({"_id": {"$in": matching_record_ids["MongoDB"]}})
-            deleted_summary["MongoDB"] = result.deleted_count
+            result = collection.delete_many({"_id": {"$in": matching_record_ids["MONGO"]}})
+            deleted_summary["MONGO"] = result.deleted_count
             total_deleted += result.deleted_count
-            print(f"[MongoDB] Deleted {result.deleted_count} documents")
+            print(f"[MONGO] Deleted {result.deleted_count} documents")
         except Exception as e:
-            print(f"[MongoDB] Error in Phase 2: {e}")
-            deleted_summary["MongoDB"] = 0
+            print(f"[MONGO] Error in Phase 2: {e}")
+            deleted_summary["MONGO"] = 0
     else:
         deleted_summary["MongoDB"] = 0
     
@@ -796,7 +796,7 @@ def delete_operation(parsed_query, db_analysis):
     print(f"\n{'='*60}")
     print("[SUMMARY] Total records deleted:")
     print(f"  SQL: {deleted_summary.get('SQL', 0)}")
-    print(f"  MongoDB: {deleted_summary.get('MongoDB', 0)}")
+    print(f"  MONGO: {deleted_summary.get('MONGO', 0)} records deleted")
     print(f"  Unknown: {deleted_summary.get('Unknown', 0)}")
     print(f"  TOTAL: {total_deleted}")
     print(f"{'='*60}\n")

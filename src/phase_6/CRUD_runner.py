@@ -62,17 +62,52 @@ def get_field_locations():
         return {}
 
 def analyze_query_databases(parsed_query):
-    """Analyze which databases we need to query based on filter fields."""
-    filters = parsed_query.get("filters", {})
+    """
+    Analyze which databases we need based on operation type and fields.
+    
+    For CREATE/UPDATE: Analyzes payload fields to know where to store data
+    For READ/DELETE: Analyzes filter fields to know where to query data
+    For UPDATE: Analyzes both filters (to find records) and payload (to store updates)
+    """
+    operation = parsed_query.get("operation")
     field_map = get_field_locations()
     
-    # If no filters, query all databases (for READ operations)
-    if not filters:
-        print(f"\n--- FIELD LOCATIONS ---")
-        print("No filters specified - will query all databases")
+    # Determine which fields to analyze based on operation
+    fields_to_analyze = {}
+    field_source_type = {}  # Track what type of field each is (filter/payload)
+    
+    if operation == "CREATE":
+        # For CREATE, analyze payload fields only
+        payload = parsed_query.get("payload", {})
+        fields_to_analyze = payload
+        field_source_type = {k: "payload" for k in payload.keys()}
+        print(f"\n[ANALYZE] Operation: {operation}")
+        print(f"[ANALYZE] Analyzing PAYLOAD fields ({len(payload)} fields)")
         
-        # Determine which databases to query - query all for safety
-        databases_needed = ["SQL", "MongoDB", "Unknown"]
+    elif operation == "UPDATE":
+        # For UPDATE, analyze BOTH filters AND payload
+        filters = parsed_query.get("filters", {})
+        payload = parsed_query.get("payload", {})
+        fields_to_analyze = {**filters, **payload}
+        field_source_type = {k: "filter" for k in filters.keys()}
+        field_source_type.update({k: "payload" for k in payload.keys()})
+        print(f"\n[ANALYZE] Operation: {operation}")
+        print(f"[ANALYZE] Analyzing FILTER fields ({len(filters)}) + PAYLOAD fields ({len(payload)})")
+        
+    else:  # READ or DELETE
+        # For READ/DELETE, analyze filter fields only
+        filters = parsed_query.get("filters", {})
+        fields_to_analyze = filters
+        field_source_type = {k: "filter" for k in filters.keys()}
+        print(f"\n[ANALYZE] Operation: {operation}")
+        print(f"[ANALYZE] Analyzing FILTER fields ({len(filters)} fields)")
+    
+    # If no fields to analyze, query all databases for safety
+    if not fields_to_analyze:
+        print(f"\n--- FIELD LOCATIONS ---")
+        print(f"No fields specified - will query all databases for {operation} operation")
+        
+        databases_needed = ["SQL", "MONGO", "Unknown"]
         
         print(f"\n--- DATABASES NEEDED ---")
         print(f"Databases: {', '.join(databases_needed)}")
@@ -82,9 +117,9 @@ def analyze_query_databases(parsed_query):
             "databases_needed": databases_needed
         }
     
-    # Categorize each filter field by its database
+    # Categorize each field by its database
     field_locations = {}
-    for field_name in filters.keys():
+    for field_name in fields_to_analyze.keys():
         location = field_map.get(field_name, "Unknown")
         field_locations[field_name] = location
     
@@ -95,7 +130,8 @@ def analyze_query_databases(parsed_query):
     
     print(f"\n--- FIELD LOCATIONS ---")
     for field, location in field_locations.items():
-        print(f"{field}: {location}")
+        source = field_source_type.get(field, "unknown")
+        print(f"{field} ({source}): {location}")
     
     print(f"\n--- DATABASES NEEDED ---")
     print(f"Databases: {', '.join(databases_needed)}")
