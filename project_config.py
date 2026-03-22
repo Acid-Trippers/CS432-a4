@@ -10,7 +10,7 @@ FETCH_COUNT = 100
 # --- API Server ---
 API_HOST = "127.0.0.1"
 API_PORT = 8000
-API_STARTUP_TIMEOUT = 15        # seconds to wait for API to be ready
+API_STARTUP_TIMEOUT = 30        # seconds to wait for API to be ready
 
 # --- Docker ---
 DOCKER_COMPOSE_FILE = "docker-compose.yml"
