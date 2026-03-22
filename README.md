@@ -51,7 +51,7 @@ The system completes its work in six distinct phases:
 First, clone the repository to your local machine and navigate into the directory:
 
 ```powershell
-git clone <your-repo-url>
+git clone https://github.com/Acid-Trippers/CS432-a2
 cd CS432-a2
 ```
 
