@@ -26,7 +26,7 @@ from typing import Dict, Any, Optional
 try:
     from sqlalchemy import (
         create_engine, Column, Integer, String, Float, Boolean, DateTime,
-        ForeignKey, JSON, inspect
+        ForeignKey, JSON, inspect, UniqueConstraint
     )
     from sqlalchemy.orm import declarative_base, Session
 except ImportError:
@@ -170,7 +170,12 @@ class SQLSchemaBuilder:
             if field_name == 'record_id':
                 continue  # already added as PK above
             sql_type = self.analyzer._map_type_to_sql(meta.get('dominant_type', 'string'))
-            attrs[field_name] = Column(sql_type, nullable=True)
+            
+            #applying metadata-based contraints
+            is_not_null = meta.get('frequency') == 1.0
+            is_unique = meta.get('cardinality') == 1.0
+            
+            attrs[field_name] = Column(sql_type, nullable=not is_not_null, unique = is_unique)
 
         self.models['main_records'] = type('MainRecords', (Base,), attrs)
 
@@ -187,7 +192,11 @@ class SQLSchemaBuilder:
             if meta.get('parent_path') == field_name and not meta.get('is_nested') and not meta.get('is_array') and meta.get('decision') == 'SQL':
                 col_name = sub_name.split('.')[-1]
                 sql_type = self.analyzer._map_type_to_sql(meta.get('dominant_type', 'string'))
-                attrs[col_name] = Column(sql_type, nullable=True)
+                
+                is_not_null = meta.get('frequency') == 1.0
+                is_unique = meta.get('cardinality') == 1.0
+                
+                attrs[col_name] = Column(sql_type, nullable=not is_not_null, unique = is_unique)
 
         self.models[table_name] = type(table_name.capitalize(), (Base,), attrs)
 
@@ -208,7 +217,11 @@ class SQLSchemaBuilder:
                 if meta.get('parent_path') == field_name and not meta.get('is_nested') and not meta.get('is_array') and meta.get('decision') == 'SQL':
                     col_name = sub_name.split('.')[-1]
                     sql_type = self.analyzer._map_type_to_sql(meta.get('dominant_type', 'string'))
-                    attrs[col_name] = Column(sql_type, nullable=True)
+                    
+                    is_not_null = meta.get('frequency') == 1.0
+                    is_unique = meta.get('cardinality') == 1.0
+                    
+                    attrs[col_name] = Column(sql_type, nullable=not is_not_null, unique = is_unique)
         else:
             attrs['value'] = Column(String(255), nullable=False)
             attrs['value_type'] = Column(String(50), nullable=True)
