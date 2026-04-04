@@ -102,15 +102,18 @@ def runMongoEngine():
 
     if not metadataJson:
         print(f"[!] Metadata not found at {METADATA_FILE}. Run initialise first.")
-        return
+        clientInstance.close()
+        return 0, 1
 
     if not mongoDataJson:
         print(f"[!] Mongo data not found at {MONGO_DATA_FILE}. Run routing first.")
-        return
+        clientInstance.close()
+        return 0, 1
 
     if len(mongoDataJson) == 0:
         print("[*] mongo_data.json is empty — nothing to insert.")
-        return
+        clientInstance.close()
+        return 0, 0
 
     print(f"[*] Loading {len(mongoDataJson)} records into MongoDB...")
 
@@ -132,6 +135,9 @@ def runMongoEngine():
         print(f"  {col:<35} {count:>10} documents")
 
     print("=" * 80)
+
+    clientInstance.close()
+    return success_count, fail_count
 
 
 if __name__ == "__main__":

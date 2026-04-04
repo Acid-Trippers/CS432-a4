@@ -36,6 +36,136 @@ crud_runner = importlib.import_module("src.phase_6.CRUD_runner")
 mongo_engine = importlib.import_module("src.phase_5.mongo_engine")
 
 
+def append_pipeline_failure(stage, context, error_message):
+    """Persist pipeline failures for retry/recovery analysis."""
+    failure_entry = {
+        "time": time.time(),
+        "stage": stage,
+        "context": context,
+        "error": str(error_message),
+    }
+
+    failures = []
+    if os.path.exists(PIPELINE_FAILURE_LOG_FILE):
+        try:
+            with open(PIPELINE_FAILURE_LOG_FILE, 'r') as f:
+                content = f.read().strip()
+                failures = json.loads(content) if content else []
+        except Exception:
+            failures = []
+
+    if not isinstance(failures, list):
+        failures = []
+
+    failures.append(failure_entry)
+    with open(PIPELINE_FAILURE_LOG_FILE, 'w') as f:
+        json.dump(failures, f, indent=2)
+
+
+def compensate_sql_batch(record_ids):
+    """Remove SQL rows for a failed batch by record_id."""
+    if not record_ids:
+        return {"attempted": False, "deleted": 0, "error": None}
+
+    engine = sql_engine.SQLEngine()
+    if not engine.initialize():
+        return {"attempted": True, "deleted": 0, "error": "Failed to initialize SQL engine for compensation"}
+
+    deleted = 0
+    try:
+        Model = engine.models.get("main_records")
+        if not Model:
+            return {"attempted": True, "deleted": 0, "error": "main_records model not found"}
+
+        deleted = (
+            engine.session.query(Model)
+            .filter(Model.record_id.in_(record_ids))
+            .delete(synchronize_session=False)
+        )
+        engine.session.commit()
+        return {"attempted": True, "deleted": deleted, "error": None}
+    except Exception as e:
+        try:
+            engine.session.rollback()
+        except Exception:
+            pass
+        return {"attempted": True, "deleted": deleted, "error": str(e)}
+    finally:
+        engine.close()
+
+
+def compensate_mongo_batch(record_ids):
+    """Remove Mongo main collection documents for a failed batch by _id/record_id."""
+    if not record_ids:
+        return {"attempted": False, "deleted": 0, "error": None}
+
+    try:
+        from pymongo import MongoClient
+
+        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        db = client[MONGO_DB_NAME]
+        result = db["main_records"].delete_many({
+            "$or": [
+                {"_id": {"$in": record_ids}},
+                {"record_id": {"$in": record_ids}},
+            ]
+        })
+        deleted = result.deleted_count
+        client.close()
+        return {"attempted": True, "deleted": deleted, "error": None}
+    except Exception as e:
+        return {"attempted": True, "deleted": 0, "error": str(e)}
+
+
+def run_storage_with_safety(batch_record_ids, context):
+    """
+    Run SQL then Mongo storage for one logical batch and compensate on failure.
+    Returns ((sql_success, sql_fail), (mongo_success, mongo_fail)).
+    """
+    engine_sql = sql_engine.SQLEngine()
+    sql_success, sql_fail = sql_pipeline.run_sql_pipeline(engine_sql)
+
+    if sql_fail > 0:
+        sql_comp = compensate_sql_batch(batch_record_ids)
+        append_pipeline_failure(
+            "storage_sql",
+            {
+                **context,
+                "sql_success": sql_success,
+                "sql_fail": sql_fail,
+                "sql_compensation": sql_comp,
+            },
+            "SQL pipeline reported failed inserts",
+        )
+        raise RuntimeError(
+            f"SQL stage failed (success={sql_success}, fail={sql_fail}); "
+            f"compensation_deleted={sql_comp.get('deleted')}"
+        )
+
+    mongo_success, mongo_fail = mongo_engine.runMongoEngine()
+
+    if mongo_fail > 0:
+        mongo_comp = compensate_mongo_batch(batch_record_ids)
+        sql_comp = compensate_sql_batch(batch_record_ids)
+        append_pipeline_failure(
+            "storage_mongo",
+            {
+                **context,
+                "mongo_success": mongo_success,
+                "mongo_fail": mongo_fail,
+                "mongo_compensation": mongo_comp,
+                "sql_compensation": sql_comp,
+            },
+            "Mongo pipeline reported failed upserts; compensated SQL and Mongo batch writes",
+        )
+        raise RuntimeError(
+            f"Mongo stage failed (success={mongo_success}, fail={mongo_fail}); "
+            f"sql_comp_deleted={sql_comp.get('deleted')}, mongo_comp_deleted={mongo_comp.get('deleted')}"
+        )
+
+    return (sql_success, sql_fail), (mongo_success, mongo_fail)
+
+
 def start_api():
     """Starts the API server in a subprocess."""
     print("[*] Starting API server...")
@@ -163,7 +293,8 @@ def initialise(count=1000):
     files_to_clean = [
         COUNTER_FILE, RECEIVED_DATA_FILE, CLEANED_DATA_FILE, 
         BUFFER_FILE, ANALYZED_SCHEMA_FILE, METADATA_FILE, 
-        SQL_DATA_FILE, MONGO_DATA_FILE, QUERY_FILE, CHECKPOINT_FILE
+        SQL_DATA_FILE, MONGO_DATA_FILE, QUERY_FILE, CHECKPOINT_FILE,
+        PIPELINE_FAILURE_LOG_FILE,
     ]
     for f in files_to_clean:
         if os.path.exists(f):
@@ -187,7 +318,8 @@ def initialise(count=1000):
     set_checkpoint("ingest")
 
     print("[*] Processed In-Memory. (Cleaning + Profiling)")
-    process_in_memory(raw_records, is_fetch=False)
+    cleaned_records = process_in_memory(raw_records, is_fetch=False)
+    batch_record_ids = [r.get("record_id") for r in cleaned_records if r.get("record_id") is not None]
     set_checkpoint("profile")
 
     print("[*] Building Metadata...")
@@ -203,13 +335,13 @@ def initialise(count=1000):
     set_checkpoint("route")
     
     print("[*] SQL Pipeline...")
-    set_checkpoint("sql")
-    engine_sql = sql_engine.SQLEngine()
-    sql_pipeline.run_sql_pipeline(engine_sql)
-
     print("[*] MongoDB Pipeline...")
+    run_storage_with_safety(
+        batch_record_ids,
+        {"pipeline": "initialise", "requested_count": count},
+    )
+    set_checkpoint("sql")
     set_checkpoint("mongo")
-    mongo_engine.runMongoEngine()
 
 
 def fetch(count=100):
@@ -230,33 +362,56 @@ def fetch(count=100):
             with open(COUNTER_FILE, 'r') as f:
                 n_old = int(f.read().strip() or 0)
 
-        # 2. Fetch and Clean
-        print(f"[*] Fetching chunk of {current_batch}...")
-        raw_records = asyncio.run(ingestion.fetch_data(current_batch))
-        
-        # This saves to cleaned_data.json and flushes received_data.json
-        cleaned_batch = process_in_memory(raw_records, is_fetch=True)
-        
-        # 3. Update Intelligence (Evolution Suite)
-        metadata_builder.merge_metadata(is_update=True, n_old=n_old, n_new=len(raw_records))
-        classifier.run_classification(verbose=False)
+        try:
+            # 2. Fetch and Clean
+            print(f"[*] Fetching chunk of {current_batch}...")
+            raw_records = asyncio.run(ingestion.fetch_data(current_batch))
+            
+            # This saves to cleaned_data.json and flushes received_data.json
+            cleaned_batch = process_in_memory(raw_records, is_fetch=True)
+            
+            # 3. Update Intelligence (Evolution Suite)
+            metadata_builder.merge_metadata(is_update=True, n_old=n_old, n_new=len(raw_records))
+            classifier.run_classification(verbose=False)
 
-        # 4. Route and Flush
-        print("[*] Sharing Data...")
-        batch_stats = data_router.route_data()
-        
-        if batch_stats:
-            print(f"    >>> Batch Success: {batch_stats['sql']} records to SQL, {batch_stats['mongo']} to Mongo.")
-        
-        # 5. SQL Pipeline
-        engine_sql = sql_engine.SQLEngine()
-        sql_pipeline.run_sql_pipeline(engine_sql)
+            # 4. Route and Flush
+            print("[*] Sharing Data...")
+            batch_stats = data_router.route_data()
+            
+            if batch_stats:
+                print(f"    >>> Batch Success: {batch_stats['sql']} records to SQL, {batch_stats['mongo']} to Mongo.")
+            
+            # 5. SQL Pipeline
+            batch_record_ids = [r.get("record_id") for r in cleaned_batch if r.get("record_id") is not None]
 
-        print("[*] MongoDB Pipeline...")
-        mongo_engine.runMongoEngine()
+            # 5 + 6. Coordinated SQL+Mongo storage with compensation
+            run_storage_with_safety(
+                batch_record_ids,
+                {
+                    "pipeline": "fetch",
+                    "batch_size": current_batch,
+                    "offset_before_batch": n_old,
+                    "remaining_before_batch": remaining,
+                },
+            )
+            set_checkpoint("sql")
+            set_checkpoint("mongo")
 
-        remaining -= current_batch
-        print(f"[+] Chunk processed. Total global records: {n_old + current_batch}")
+            remaining -= current_batch
+            print(f"[+] Chunk processed. Total global records: {n_old + current_batch}")
+        except Exception as e:
+            append_pipeline_failure(
+                "fetch_batch",
+                {
+                    "batch_size": current_batch,
+                    "offset_before_batch": n_old,
+                    "remaining_before_batch": remaining,
+                },
+                str(e),
+            )
+            print(f"[X] Fetch batch failed: {e}")
+            print(f"[X] Failure logged to {PIPELINE_FAILURE_LOG_FILE}. Resolve issue and retry fetch.")
+            raise
 
     print(f"[SUCCESS] Fetch complete.")
 
