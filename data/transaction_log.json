@@ -562,5 +562,107 @@
     "metadata": {
       "record_id": 11
     }
+  },
+  {
+    "transaction_id": "b22fa533-7ef5-437b-bcd4-f7ebae15b43f",
+    "operation": "CREATE",
+    "entity": "main_records",
+    "participants": [
+      "SQL",
+      "MONGO"
+    ],
+    "state": "committed",
+    "started_at": "2026-04-04T20:00:49.382238Z",
+    "ended_at": "2026-04-04T20:00:49.385555Z",
+    "events": [
+      {
+        "time": "2026-04-04T20:00:49.382252Z",
+        "type": "transaction_started",
+        "payload": {}
+      },
+      {
+        "time": "2026-04-04T20:00:49.382256Z",
+        "type": "step_apply_started",
+        "payload": {
+          "step": "create_sql_record",
+          "participant": "SQL"
+        }
+      },
+      {
+        "time": "2026-04-04T20:00:49.384499Z",
+        "type": "step_apply_succeeded",
+        "payload": {
+          "step": "create_sql_record",
+          "participant": "SQL"
+        }
+      },
+      {
+        "time": "2026-04-04T20:00:49.384503Z",
+        "type": "step_apply_started",
+        "payload": {
+          "step": "create_mongo_document",
+          "participant": "MONGO"
+        }
+      },
+      {
+        "time": "2026-04-04T20:00:49.385551Z",
+        "type": "step_apply_succeeded",
+        "payload": {
+          "step": "create_mongo_document",
+          "participant": "MONGO"
+        }
+      },
+      {
+        "time": "2026-04-04T20:00:49.385556Z",
+        "type": "transaction_committed",
+        "payload": {}
+      }
+    ],
+    "metadata": {
+      "record_id": 500
+    }
+  },
+  {
+    "transaction_id": "b8b53a9d-357b-4297-a435-88538959f32d",
+    "operation": "CREATE",
+    "entity": "main_records",
+    "participants": [
+      "SQL",
+      "MONGO"
+    ],
+    "state": "rolled_back",
+    "started_at": "2026-04-04T20:00:49.400915Z",
+    "ended_at": "2026-04-04T20:00:49.402117Z",
+    "events": [
+      {
+        "time": "2026-04-04T20:00:49.400926Z",
+        "type": "transaction_started",
+        "payload": {}
+      },
+      {
+        "time": "2026-04-04T20:00:49.400928Z",
+        "type": "step_apply_started",
+        "payload": {
+          "step": "create_sql_record",
+          "participant": "SQL"
+        }
+      },
+      {
+        "time": "2026-04-04T20:00:49.402109Z",
+        "type": "transaction_apply_failed",
+        "payload": {
+          "error": "SQL insert returned None",
+          "applied_steps": []
+        }
+      },
+      {
+        "time": "2026-04-04T20:00:49.402114Z",
+        "type": "transaction_rolled_back",
+        "payload": {}
+      }
+    ],
+    "metadata": {
+      "record_id": 501
+    }
   }
 ]

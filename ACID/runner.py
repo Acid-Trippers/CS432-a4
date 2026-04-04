@@ -27,6 +27,9 @@ from ACID.advanced_validators import (
     schema_validation_test,
     dirty_read_test,
     concurrent_read_write_isolation_test,
+    concurrent_insert_lost_updates_test,
+    concurrent_update_atomicity_test,
+    stress_test_concurrent_ops,
     persistent_connection_test,
     index_integrity_test
 )
@@ -60,6 +63,9 @@ def run_advanced_test(test_name: str):
         "schema_validation": schema_validation_test,
         "dirty_read_prevention": dirty_read_test,
         "concurrent_read_write_isolation": concurrent_read_write_isolation_test,
+        "concurrent_insert_lost_updates": concurrent_insert_lost_updates_test,
+        "concurrent_update_atomicity": concurrent_update_atomicity_test,
+        "stress_test_concurrent_ops": stress_test_concurrent_ops,
         "persistent_connection": persistent_connection_test,
         "index_integrity": index_integrity_test
     }
@@ -85,9 +91,19 @@ def run_all_tests():
 def run_all_advanced_tests():
     """Run all advanced ACID tests."""
     results = {}
-    advanced_tests = ["multi_record_atomicity", "cross_db_atomicity", "not_null_constraint",
-                      "schema_validation", "dirty_read_prevention", "concurrent_read_write_isolation",
-                      "persistent_connection", "index_integrity"]
+    advanced_tests = [
+        "multi_record_atomicity",
+        "cross_db_atomicity",
+        "not_null_constraint",
+        "schema_validation",
+        "dirty_read_prevention",
+        "concurrent_read_write_isolation",
+        "concurrent_insert_lost_updates",
+        "concurrent_update_atomicity",
+        "stress_test_concurrent_ops",
+        "persistent_connection",
+        "index_integrity"
+    ]
     for test in advanced_tests:
         results[test] = run_advanced_test(test)
     return results

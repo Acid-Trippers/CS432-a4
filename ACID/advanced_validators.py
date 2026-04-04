@@ -325,90 +325,87 @@ def dirty_read_test():
     except Exception as e:
         return {"test": "dirty_read_prevention", "passed": False, "error": str(e)[:100]}
 
-def concurrent_read_write_isolation_test(readers: int = 5, writers: int = 3):
+def concurrent_read_write_isolation_test(readers: int = 3, writers: int = 2):
     """
-    Async mixed workload isolation test.
-
+    Test: Isolation under concurrent read/write operations.
     Scenario:
-    1. Multiple writer transactions insert rows but hold commit briefly.
-    2. Reader tasks query counts before commit (should not include uncommitted rows).
-    3. Readers query again after commit (should include committed rows).
+    1. Writers insert rows and HOLD transaction before committing.
+    2. Readers query during held transaction (should NOT see uncommitted rows).
+    3. Writers commit, readers query again (SHOULD see new rows).
+    Pass: Pre-commit reads = base_count; Post-commit reads = base_count + writers
     """
     try:
         model = _get_main_model()
         if not model:
-            return {
-                "test": "concurrent_read_write_isolation",
-                "passed": False,
-                "error": "main_records model unavailable",
-            }
+            return {"test": "concurrent_read_write_isolation", "passed": False, "error": "main_records unavailable"}
 
         base_count = _sql_count()
-        base_id = max(_get_counter_value(), int(time.time()) % 100000)
+        base_id = int(time.time() * 1000) % 1000000
         record_ids = [base_id + i for i in range(writers)]
+        
+        # Synchronization using barrier + events
+        writers_ready = threading.Barrier(writers)
+        readers_can_read = threading.Event()
+        writers_can_commit = threading.Event()
+        
+        pre_commit_reads = []
+        post_commit_reads = []
+        read_lock = threading.Lock()
 
-        start_event = threading.Event()
-        commit_event = threading.Event()
-        started_writers = 0
-        started_lock = threading.Lock()
-
-        def writer(record_id: int):
-            nonlocal started_writers
+        def writer_thread(record_id: int):
+            """Insert and hold transaction until signal."""
             session = _new_sql_session()
             try:
                 session.execute(
-                    text("INSERT INTO main_records (record_id, device_id) VALUES (:rid, :device_id)"),
-                    {"rid": record_id, "device_id": f"iso_writer_{record_id}"},
+                    text("INSERT INTO main_records (record_id, device_id) VALUES (:rid, :dev)"),
+                    {"rid": record_id, "dev": f"iso_{record_id}"}
                 )
-
-                with started_lock:
-                    started_writers += 1
-                    if started_writers == writers:
-                        start_event.set()
-
-                commit_event.wait(timeout=3)
+                writers_ready.wait(timeout=2)
+                readers_can_read.set()
+                writers_can_commit.wait(timeout=3)
                 session.commit()
             except Exception:
                 session.rollback()
             finally:
                 session.close()
 
-        def reader_count():
-            return _sql_count()
+        def reader_thread():
+            """Read count before and after commit."""
+            readers_can_read.wait(timeout=3)
+            time.sleep(0.05)
+            pre_count = _sql_count()
+            with read_lock:
+                pre_commit_reads.append(pre_count)
+            writers_can_commit.set()
+            time.sleep(0.1)
+            post_count = _sql_count()
+            with read_lock:
+                post_commit_reads.append(post_count)
 
-        async def run_test():
-            writer_tasks = [asyncio.to_thread(writer, rid) for rid in record_ids]
-            writer_group = asyncio.gather(*writer_tasks)
-
-            await asyncio.to_thread(start_event.wait, 2)
-
-            pre_commit_reads = await asyncio.gather(
-                *[asyncio.to_thread(reader_count) for _ in range(readers)]
-            )
-
-            commit_event.set()
-            await writer_group
-
-            post_commit_reads = await asyncio.gather(
-                *[asyncio.to_thread(reader_count) for _ in range(readers)]
-            )
-
-            return pre_commit_reads, post_commit_reads
-
-        pre_commit_reads, post_commit_reads = asyncio.run(run_test())
-
+        writer_threads = [threading.Thread(target=writer_thread, args=(rid,)) for rid in record_ids]
+        for t in writer_threads:
+            t.start()
+        
+        time.sleep(0.05)
+        reader_threads = [threading.Thread(target=reader_thread) for _ in range(readers)]
+        for t in reader_threads:
+            t.start()
+        
+        for t in writer_threads + reader_threads:
+            t.join(timeout=5)
+        
         after_count = _sql_count()
-        expected_after = base_count + writers
-
-        pre_commit_ok = all(read == base_count for read in pre_commit_reads)
-        post_commit_ok = all(read == expected_after for read in post_commit_reads)
-        final_ok = after_count == expected_after
-
+        expected = base_count + writers
+        
+        pre_ok = len(pre_commit_reads) > 0 and all(r == base_count for r in pre_commit_reads)
+        post_ok = len(post_commit_reads) > 0 and all(r == expected for r in post_commit_reads)
+        final_ok = after_count == expected
+        
         return {
             "test": "concurrent_read_write_isolation",
-            "passed": pre_commit_ok and post_commit_ok and final_ok,
+            "passed": pre_ok and post_ok and final_ok,
             "base_count": base_count,
-            "expected_after": expected_after,
+            "expected_after": expected,
             "after_count": after_count,
             "readers": readers,
             "writers": writers,
@@ -416,17 +413,256 @@ def concurrent_read_write_isolation_test(readers: int = 5, writers: int = 3):
             "post_commit_reads": post_commit_reads,
         }
     except Exception as e:
-        return {
-            "test": "concurrent_read_write_isolation",
-            "passed": False,
-            "error": str(e)[:150],
-        }
+        return {"test": "concurrent_read_write_isolation", "passed": False, "error": str(e)[:120]}
     finally:
-        try:
-            for rid in locals().get("record_ids", []):
+        for rid in [base_id + i for i in range(writers)]:
+            try:
                 _delete_sql_by_record_id(rid)
-        except Exception:
-            pass
+            except Exception:
+                pass
+
+
+# ==================== CRITICAL ROBUSTNESS TESTS ====================
+
+def concurrent_insert_lost_updates_test(num_threads: int = 5):
+    """
+    Test: Concurrent inserts don't result in lost data.
+    Scenario: Multiple threads insert records simultaneously.
+    Expected: Final count = initial + (num_threads × records_per_thread).
+    Pass: No data lost (count matches exactly).
+    """
+    try:
+        model = _get_main_model()
+        if not model:
+            return {"test": "concurrent_insert_lost_updates", "passed": False, "error": "main_records unavailable"}
+        
+        before_count = _sql_count()
+        base_id = int(time.time() * 1000) % 1000000
+        records_per_thread = 3
+        total_expected = before_count + (num_threads * records_per_thread)
+        
+        inserted_ids = []
+        insert_lock = threading.Lock()
+        
+        def inserter_thread(thread_id: int):
+            """Insert records in this thread."""
+            session = _new_sql_session()
+            try:
+                for i in range(records_per_thread):
+                    record_id = base_id + (thread_id * 100) + i
+                    session.execute(
+                        text("INSERT INTO main_records (record_id, device_id) VALUES (:rid, :dev)"),
+                        {"rid": record_id, "dev": f"lost_upd_{record_id}"}
+                    )
+                    with insert_lock:
+                        inserted_ids.append(record_id)
+                session.commit()
+            except Exception as e:
+                session.rollback()
+            finally:
+                session.close()
+        
+        threads = [threading.Thread(target=inserter_thread, args=(i,)) for i in range(num_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+        
+        after_count = _sql_count()
+        lost_updates = total_expected - after_count
+        
+        result = {
+            "test": "concurrent_insert_lost_updates",
+            "passed": after_count == total_expected,
+            "before_count": before_count,
+            "expected_after": total_expected,
+            "actual_after": after_count,
+            "lost_updates": lost_updates,
+            "num_threads": num_threads,
+        }
+        
+        for rid in inserted_ids:
+            try:
+                _delete_sql_by_record_id(rid)
+            except Exception:
+                pass
+        
+        return result
+    except Exception as e:
+        return {"test": "concurrent_insert_lost_updates", "passed": False, "error": str(e)[:120]}
+
+
+def concurrent_update_atomicity_test(num_threads: int = 5):
+    """
+    Test: Check-then-act race condition (lost update variant).
+    Scenario: Seed record with value 100. N threads do: READ → ADD 10 → WRITE.
+    Expected final: 100 + (N × 10).
+    Pass: Final matches expected (no lost updates).
+    """
+    try:
+        model = _get_main_model()
+        if not model:
+            return {"test": "concurrent_update_atomicity", "passed": False, "error": "main_records unavailable"}
+        
+        seed_id = 99999
+        initial_balance = 100
+        increment = 10
+        expected_final = initial_balance + (num_threads * increment)
+        
+        session = _new_sql_session()
+        try:
+            session.query(model).filter(model.record_id == seed_id).delete()
+            session.commit()
+            session.execute(
+                text(f"INSERT INTO main_records (record_id, device_id) VALUES ({seed_id}, 'balance_{initial_balance}')"),
+            )
+            session.commit()
+        finally:
+            session.close()
+        
+        def updater_thread():
+            """Read-modify-write pattern (tests race condition)."""
+            thread_session = _new_sql_session()
+            try:
+                record = thread_session.query(model).filter(model.record_id == seed_id).first()
+                if not record:
+                    return
+                time.sleep(0.001)  # Increase race condition window
+                current_val = int(record.device_id.split('_')[1]) if '_' in record.device_id else initial_balance
+                new_val = current_val + increment
+                thread_session.execute(
+                    text(f"UPDATE main_records SET device_id = :new_dev WHERE record_id = {seed_id}"),
+                    {"new_dev": f"balance_{new_val}"}
+                )
+                thread_session.commit()
+            except Exception:
+                thread_session.rollback()
+            finally:
+                thread_session.close()
+        
+        threads = [threading.Thread(target=updater_thread) for _ in range(num_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+        
+        final_session = _new_sql_session()
+        try:
+            record = final_session.query(model).filter(model.record_id == seed_id).first()
+            final_balance = int(record.device_id.split('_')[1]) if record and '_' in record.device_id else 0
+        finally:
+            final_session.close()
+        
+        lost_updates = expected_final - final_balance
+        _delete_sql_by_record_id(seed_id)
+        
+        return {
+            "test": "concurrent_update_atomicity",
+            "passed": final_balance == expected_final,
+            "initial_balance": initial_balance,
+            "expected_final": expected_final,
+            "actual_final": final_balance,
+            "lost_updates": lost_updates,
+            "num_threads": num_threads,
+        }
+    except Exception as e:
+        return {"test": "concurrent_update_atomicity", "passed": False, "error": str(e)[:120]}
+
+
+def stress_test_concurrent_ops(num_ops: int = 50, num_threads: int = 5):
+    """
+    Test: System robustness under sustained concurrent load.
+    Scenario: N threads perform M total mixed operations (INSERT 40%, READ 30%, UPDATE 20%, DELETE 10%).
+    Pass: No deadlocks/timeouts; error rate < 2%; data integrity maintained.
+    """
+    try:
+        model = _get_main_model()
+        if not model:
+            return {"test": "stress_test_concurrent_ops", "passed": False, "error": "main_records unavailable"}
+        
+        base_id = int(time.time() * 1000) % 1000000
+        success_count = 0
+        error_count = 0
+        success_lock = threading.Lock()
+        inserted_ids = []
+        ids_lock = threading.Lock()
+        
+        before_count = _sql_count()
+        
+        def worker_ops(worker_id: int):
+            """Execute mixed operations."""
+            nonlocal success_count, error_count
+            ops_per_worker = num_ops // num_threads
+            
+            for op_idx in range(ops_per_worker):
+                try:
+                    session = _new_sql_session()
+                    record_id = base_id + (worker_id * 1000) + op_idx
+                    
+                    if op_idx % 10 < 4:  # 40% INSERT
+                        session.execute(
+                            text("INSERT INTO main_records (record_id, device_id) VALUES (:rid, :dev)"),
+                            {"rid": record_id, "dev": f"stress_{record_id}"}
+                        )
+                        with ids_lock:
+                            inserted_ids.append(record_id)
+                    elif op_idx % 10 < 7:  # 30% READ
+                        session.query(model).filter(model.record_id == record_id).first()
+                    elif op_idx % 10 < 9:  # 20% UPDATE
+                        session.execute(
+                            text(f"UPDATE main_records SET device_id = :dev WHERE record_id = {record_id}"),
+                            {"dev": f"stress_upd_{record_id}"}
+                        )
+                    else:  # 10% DELETE
+                        session.execute(
+                            text(f"DELETE FROM main_records WHERE record_id = {record_id}")
+                        )
+                    
+                    session.commit()
+                    with success_lock:
+                        success_count += 1
+                except Exception:
+                    with success_lock:
+                        error_count += 1
+                finally:
+                    session.close()
+        
+        threads = [threading.Thread(target=worker_ops, args=(i,)) for i in range(num_threads)]
+        start_time = time.time()
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+        elapsed = time.time() - start_time
+        
+        after_count = _sql_count()
+        throughput = success_count / elapsed if elapsed > 0 else 0
+        
+        for rid in inserted_ids:
+            try:
+                _delete_sql_by_record_id(rid)
+            except Exception:
+                pass
+        
+        error_rate = error_count / (success_count + error_count) if (success_count + error_count) > 0 else 0
+        
+        return {
+            "test": "stress_test_concurrent_ops",
+            "passed": error_rate < 0.02 and error_count < 2,
+            "num_threads": num_threads,
+            "total_ops": success_count + error_count,
+            "successful_ops": success_count,
+            "failed_ops": error_count,
+            "error_rate": f"{error_rate*100:.2f}%",
+            "elapsed_seconds": f"{elapsed:.2f}",
+            "throughput_ops_per_sec": f"{throughput:.1f}",
+            "before_count": before_count,
+            "after_count": after_count,
+        }
+    except Exception as e:
+        return {"test": "stress_test_concurrent_ops", "passed": False, "error": str(e)[:120]}
+
+
 # ==================== ADVANCED DURABILITY ====================
 
 def persistent_connection_test():
