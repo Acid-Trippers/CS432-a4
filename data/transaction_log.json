@@ -57,5 +57,259 @@
     "metadata": {
       "record_id": 1250
     }
+  },
+  {
+    "transaction_id": "cc87de50-6906-4442-8cd1-56d9ae4375ef",
+    "operation": "CREATE",
+    "entity": "main_records",
+    "participants": [
+      "SQL",
+      "MONGO"
+    ],
+    "state": "committed",
+    "started_at": "2026-04-04T08:36:44.404639Z",
+    "ended_at": "2026-04-04T08:36:44.412360Z",
+    "events": [
+      {
+        "time": "2026-04-04T08:36:44.404639Z",
+        "type": "transaction_started",
+        "payload": {}
+      },
+      {
+        "time": "2026-04-04T08:36:44.404639Z",
+        "type": "step_apply_started",
+        "payload": {
+          "step": "create_sql_record",
+          "participant": "SQL"
+        }
+      },
+      {
+        "time": "2026-04-04T08:36:44.410326Z",
+        "type": "step_apply_succeeded",
+        "payload": {
+          "step": "create_sql_record",
+          "participant": "SQL"
+        }
+      },
+      {
+        "time": "2026-04-04T08:36:44.410326Z",
+        "type": "step_apply_started",
+        "payload": {
+          "step": "create_mongo_document",
+          "participant": "MONGO"
+        }
+      },
+      {
+        "time": "2026-04-04T08:36:44.412360Z",
+        "type": "step_apply_succeeded",
+        "payload": {
+          "step": "create_mongo_document",
+          "participant": "MONGO"
+        }
+      },
+      {
+        "time": "2026-04-04T08:36:44.412360Z",
+        "type": "transaction_committed",
+        "payload": {}
+      }
+    ],
+    "metadata": {
+      "record_id": 1251
+    }
+  },
+  {
+    "transaction_id": "6256abec-a3f6-4602-b670-83d37abc9699",
+    "operation": "CREATE",
+    "entity": "main_records",
+    "participants": [
+      "SQL",
+      "MONGO"
+    ],
+    "state": "committed",
+    "started_at": "2026-04-04T08:36:44.682398Z",
+    "ended_at": "2026-04-04T08:36:44.687662Z",
+    "events": [
+      {
+        "time": "2026-04-04T08:36:44.682398Z",
+        "type": "transaction_started",
+        "payload": {}
+      },
+      {
+        "time": "2026-04-04T08:36:44.682398Z",
+        "type": "step_apply_started",
+        "payload": {
+          "step": "create_sql_record",
+          "participant": "SQL"
+        }
+      },
+      {
+        "time": "2026-04-04T08:36:44.685403Z",
+        "type": "step_apply_succeeded",
+        "payload": {
+          "step": "create_sql_record",
+          "participant": "SQL"
+        }
+      },
+      {
+        "time": "2026-04-04T08:36:44.685403Z",
+        "type": "step_apply_started",
+        "payload": {
+          "step": "create_mongo_document",
+          "participant": "MONGO"
+        }
+      },
+      {
+        "time": "2026-04-04T08:36:44.687662Z",
+        "type": "step_apply_succeeded",
+        "payload": {
+          "step": "create_mongo_document",
+          "participant": "MONGO"
+        }
+      },
+      {
+        "time": "2026-04-04T08:36:44.687662Z",
+        "type": "transaction_committed",
+        "payload": {}
+      }
+    ],
+    "metadata": {
+      "record_id": 1252
+    }
+  },
+  {
+    "transaction_id": "73803b66-18ca-449f-ba35-3c3d372e8975",
+    "operation": "CREATE",
+    "entity": "main_records",
+    "participants": [
+      "SQL",
+      "MONGO"
+    ],
+    "state": "committed",
+    "started_at": "2026-04-04T08:38:39.391449Z",
+    "ended_at": "2026-04-04T08:38:39.412491Z",
+    "events": [
+      {
+        "time": "2026-04-04T08:38:39.391449Z",
+        "type": "transaction_started",
+        "payload": {}
+      },
+      {
+        "time": "2026-04-04T08:38:39.391449Z",
+        "type": "step_apply_started",
+        "payload": {
+          "step": "create_sql_record",
+          "participant": "SQL"
+        }
+      },
+      {
+        "time": "2026-04-04T08:38:39.404863Z",
+        "type": "step_apply_succeeded",
+        "payload": {
+          "step": "create_sql_record",
+          "participant": "SQL"
+        }
+      },
+      {
+        "time": "2026-04-04T08:38:39.404863Z",
+        "type": "step_apply_started",
+        "payload": {
+          "step": "create_mongo_document",
+          "participant": "MONGO"
+        }
+      },
+      {
+        "time": "2026-04-04T08:38:39.412491Z",
+        "type": "step_apply_succeeded",
+        "payload": {
+          "step": "create_mongo_document",
+          "participant": "MONGO"
+        }
+      },
+      {
+        "time": "2026-04-04T08:38:39.412491Z",
+        "type": "transaction_committed",
+        "payload": {}
+      }
+    ],
+    "metadata": {
+      "record_id": 1251
+    }
+  },
+  {
+    "transaction_id": "f13fc2d8-bfc8-483f-a91f-030984d844c6",
+    "operation": "CREATE",
+    "entity": "main_records",
+    "participants": [
+      "SQL",
+      "MONGO"
+    ],
+    "state": "rolled_back",
+    "started_at": "2026-04-04T08:38:39.543941Z",
+    "ended_at": "2026-04-04T08:38:39.582435Z",
+    "events": [
+      {
+        "time": "2026-04-04T08:38:39.543941Z",
+        "type": "transaction_started",
+        "payload": {}
+      },
+      {
+        "time": "2026-04-04T08:38:39.543941Z",
+        "type": "step_apply_started",
+        "payload": {
+          "step": "create_sql_record",
+          "participant": "SQL"
+        }
+      },
+      {
+        "time": "2026-04-04T08:38:39.552089Z",
+        "type": "step_apply_succeeded",
+        "payload": {
+          "step": "create_sql_record",
+          "participant": "SQL"
+        }
+      },
+      {
+        "time": "2026-04-04T08:38:39.552089Z",
+        "type": "step_apply_started",
+        "payload": {
+          "step": "create_mongo_document",
+          "participant": "MONGO"
+        }
+      },
+      {
+        "time": "2026-04-04T08:38:39.577121Z",
+        "type": "transaction_apply_failed",
+        "payload": {
+          "error": "E11000 duplicate key error collection: cs432_db.main_records index: _id_ dup key: { _id: 1252 }, full error: {'index': 0, 'code': 11000, 'errmsg': 'E11000 duplicate key error collection: cs432_db.main_records index: _id_ dup key: { _id: 1252 }', 'keyPattern': {'_id': 1}, 'keyValue': {'_id': 1252}}",
+          "applied_steps": [
+            "create_sql_record"
+          ]
+        }
+      },
+      {
+        "time": "2026-04-04T08:38:39.577121Z",
+        "type": "step_compensate_started",
+        "payload": {
+          "step": "create_sql_record",
+          "participant": "SQL"
+        }
+      },
+      {
+        "time": "2026-04-04T08:38:39.582435Z",
+        "type": "step_compensate_succeeded",
+        "payload": {
+          "step": "create_sql_record",
+          "participant": "SQL"
+        }
+      },
+      {
+        "time": "2026-04-04T08:38:39.582435Z",
+        "type": "transaction_rolled_back",
+        "payload": {}
+      }
+    ],
+    "metadata": {
+      "record_id": 1252
+    }
   }
 ]

@@ -5,10 +5,10 @@ Tests Atomicity, Consistency, Isolation, Durability properties.
 """
 
 from src.phase_5.sql_engine import SQLEngine
-from src.phase_6.CRUD_operations import create_operation, read_operation, update_operation, delete_operation
-from src.phase_6.CRUD_runner import query_parser, analyze_query_databases
+from src.phase_6.CRUD_operations import create_operation
+from src.phase_6.CRUD_runner import analyze_query_databases
 from pymongo import MongoClient
-from src.config import MONGO_URI, MONGO_DB_NAME
+from src.config import MONGO_URI, MONGO_DB_NAME, COUNTER_FILE
 import time
 from sqlalchemy import text
 import threading
@@ -25,14 +25,83 @@ mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 mongo_db = mongo_client[MONGO_DB_NAME]
 
 
+def _get_main_model():
+    return sql_engine.models.get("main_records")
+
+
+def _new_sql_session():
+    return sql_engine.schema_builder.get_session()
+
+
+def _get_counter_value() -> int:
+    try:
+        with open(COUNTER_FILE, "r", encoding="utf-8") as fh:
+            return int(fh.read().strip() or 0)
+    except Exception:
+        return 0
+
+
+def _set_counter_value(value: int):
+    with open(COUNTER_FILE, "w", encoding="utf-8") as fh:
+        fh.write(str(value))
+
+
+def _delete_sql_by_record_id(record_id: int):
+    model = _get_main_model()
+    if not model:
+        return
+    session = _new_sql_session()
+    try:
+        session.query(model).filter(model.record_id == record_id).delete()
+        session.commit()
+    finally:
+        session.close()
+
+
+def _sql_record_exists(record_id: int) -> bool:
+    model = _get_main_model()
+    if not model:
+        return False
+    session = _new_sql_session()
+    try:
+        return session.query(model).filter(model.record_id == record_id).count() > 0
+    finally:
+        session.close()
+
+
+def _build_create_query(tag: str):
+    return {
+        "operation": "CREATE",
+        "entity": "main_records",
+        "payload": {
+            "username": f"acid_{tag}_{int(time.time() * 1000)}",
+            "name": "ACID Test User",
+            "age": 30,
+            "email": f"acid_{tag}_{int(time.time() * 1000)}@example.com",
+            "timestamp": "2026-04-04T12:00:00Z",
+            "action": "test",
+            "comment": f"{tag} test",
+        },
+    }
+
+
+def _run_create_transaction(query: dict):
+    analysis = analyze_query_databases(query)
+    return create_operation(query, analysis)
+
+
 def get_sql_count(table: str = "main_records") -> int:
     """Get row count from SQL table using existing engine."""
     try:
-        if not sql_engine or not sql_engine.session:
+        model = sql_engine.models.get(table)
+        if not model:
             return -1
-        result = sql_engine.session.query(sql_engine.models.get(table)).count() if sql_engine.models.get(table) else 0
-        return result
-    except:
+        session = _new_sql_session()
+        try:
+            return session.query(model).count()
+        finally:
+            session.close()
+    except Exception:
         return -1
 
 
@@ -51,36 +120,53 @@ def atomicity_test():
     Test: Attempt to insert record with invalid data to trigger rollback.
     Verify: Counts unchanged if insert failed = PASS
     """
-    before_sql = get_sql_count()
-    before_mongo = get_mongo_count()
-    
-    rollback_count = 0
+    original_counter = _get_counter_value()
+    record_id = original_counter
+    collection = mongo_db["main_records"]
+
+    inserted_seed = False
+    existing_seed = collection.find_one({"_id": record_id})
+
     try:
-        # Try to insert NULL into NOT NULL field (should fail)
-        query = text("INSERT INTO main_records (record_id) VALUES (NULL)")
-        sql_engine.session.execute(query)
-        sql_engine.session.commit()
-    except Exception as e:
-        # Transaction should rollback automatically
-        sql_engine.session.rollback()
-        rollback_count += 1
-    
-    after_sql = get_sql_count()
-    after_mongo = get_mongo_count()
-    
-    # Atomicity holds if failed insert didn't partially apply
-    atomicity_holds = (before_sql == after_sql and before_mongo == after_mongo and rollback_count > 0)
-    
-    return {
-        "test": "atomicity",
-        "passed": atomicity_holds,
-        "sql_count_before": before_sql,
-        "sql_count_after": after_sql,
-        "mongo_count_before": before_mongo,
-        "mongo_count_after": after_mongo,
-        "rollback_attempts": rollback_count,
-        "note": "Transaction rolled back on constraint violation"
-    }
+        if not existing_seed:
+            collection.insert_one({"_id": record_id, "seed": "acid_atomicity"})
+            inserted_seed = True
+
+        _delete_sql_by_record_id(record_id)
+
+        before_sql = get_sql_count()
+        before_mongo = get_mongo_count()
+
+        result = _run_create_transaction(_build_create_query("atomicity"))
+
+        after_sql = get_sql_count()
+        after_mongo = get_mongo_count()
+        tx_state = (result.get("transaction") or {}).get("state")
+
+        atomicity_holds = (
+            result.get("status") == "failed"
+            and tx_state in ("rolled_back", "failed_needs_recovery")
+            and before_sql == after_sql
+            and before_mongo == after_mongo
+            and (not _sql_record_exists(record_id))
+            and collection.count_documents({"_id": record_id}) == 1
+        )
+
+        return {
+            "test": "atomicity",
+            "passed": atomicity_holds,
+            "sql_count_before": before_sql,
+            "sql_count_after": after_sql,
+            "mongo_count_before": before_mongo,
+            "mongo_count_after": after_mongo,
+            "transaction_state": tx_state,
+            "record_id": record_id,
+            "note": "Coordinator rollback verified on cross-database failure",
+        }
+    finally:
+        _set_counter_value(original_counter)
+        if inserted_seed:
+            collection.delete_one({"_id": record_id})
 
 
 def consistency_test():
@@ -91,23 +177,31 @@ def consistency_test():
     Verify: Should fail with constraint error = PASS
     """
     try:
-        # Get an existing record_id
-        existing = sql_engine.session.query(sql_engine.models.get("main_records")).first()
+        model = _get_main_model()
+        if not model:
+            return {"test": "consistency", "passed": False, "error": "main_records model unavailable"}
+
+        session = _new_sql_session()
+        existing = session.query(model).first()
         if not existing:
+            session.close()
             return {"test": "consistency", "passed": True, "note": "No records to test"}
         
         dup_id = existing.record_id
         
         # Try duplicate insert (should fail)
         try:
-            sql_engine.session.execute(
-                text(f"INSERT INTO main_records (record_id) VALUES ({dup_id})")
+            session.execute(
+                text("INSERT INTO main_records (record_id) VALUES (:rid)"),
+                {"rid": dup_id},
             )
-            sql_engine.session.commit()
+            session.commit()
+            session.close()
             return {"test": "consistency", "passed": False, "error": "Duplicate insert accepted!"}
         except Exception as e:
             # Constraint violation = expected
-            sql_engine.session.rollback()
+            session.rollback()
+            session.close()
             constraint_error = "duplicate" in str(e).lower() or "unique" in str(e).lower() or "primary" in str(e).lower()
             return {"test": "consistency", "passed": constraint_error, "error": str(e)[:100]}
     
@@ -125,15 +219,18 @@ def isolation_test(num_workers: int = 3):
     before = get_sql_count()
     read_results = []
     errors = []
+    lock = threading.Lock()
     
     def worker_read(thread_id):
         """Worker thread that reads current count."""
         try:
             time.sleep(0.01 * thread_id)  # Stagger reads
             count = get_sql_count()
-            read_results.append((thread_id, count))
+            with lock:
+                read_results.append((thread_id, count))
         except Exception as e:
-            errors.append(str(e))
+            with lock:
+                errors.append(str(e))
     
     # Spawn concurrent readers
     threads = []
@@ -151,7 +248,7 @@ def isolation_test(num_workers: int = 3):
     # Isolation holds if all readers see same count (no dirty reads)
     all_reads = [count for _, count in read_results]
     consistent_reads = len(set(all_reads)) <= 1 if all_reads else True
-    isolation_holds = consistent_reads and len(errors) == 0 and (before == after or before >= 0)
+    isolation_holds = consistent_reads and len(errors) == 0 and before == after
     
     return {
         "test": "isolation",
@@ -172,24 +269,40 @@ def durability_test():
     Test: Query data multiple times, verify same results.
     Verify: Data persists and is recoverable = PASS
     """
+    original_counter = _get_counter_value()
+    record_id = original_counter
+
     try:
-        # Multiple queries to ensure durability
-        counts = []
-        for attempt in range(3):
-            count = get_sql_count()
-            counts.append(count)
-            time.sleep(0.01)  # Small delay between queries
-        
-        # All queries should see same count (data persisted)
-        all_same = len(set(counts)) == 1
-        success = all_same and counts[0] >= 0
-        
+        result = _run_create_transaction(_build_create_query("durability"))
+        tx_state = (result.get("transaction") or {}).get("state")
+        if result.get("status") != "success":
+            return {
+                "test": "durability",
+                "passed": False,
+                "error": "Create transaction failed",
+                "transaction_state": tx_state,
+            }
+
+        sql_reads = []
+        mongo_reads = []
+        for _ in range(3):
+            sql_reads.append(_sql_record_exists(record_id))
+            mongo_reads.append(mongo_db["main_records"].count_documents({"_id": record_id}) == 1)
+            time.sleep(0.02)
+
+        success = all(sql_reads) and all(mongo_reads)
         return {
             "test": "durability",
             "passed": success,
-            "record_counts": counts,
-            "consistent": all_same,
-            "note": "Data consistently readable across queries"
+            "transaction_state": tx_state,
+            "record_id": record_id,
+            "sql_reads": sql_reads,
+            "mongo_reads": mongo_reads,
+            "note": "Committed record remains visible across repeated checks",
         }
     except Exception as e:
         return {"test": "durability", "passed": False, "error": str(e)[:100]}
+    finally:
+        _delete_sql_by_record_id(record_id)
+        mongo_db["main_records"].delete_one({"_id": record_id})
+        _set_counter_value(original_counter)

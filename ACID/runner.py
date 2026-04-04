@@ -13,6 +13,7 @@ Dashboard usage:
 
 import sys
 import json
+import argparse
 from ACID.validators import (
     atomicity_test,
     consistency_test,
@@ -91,11 +92,20 @@ def run_all_advanced_tests():
 
 def main():
     """CLI entry point."""
-    if len(sys.argv) < 2:
-        print("Usage: python -m ACID.runner --test <test_name|all|advanced>")
-        return
-    
-    test_name = sys.argv[2] if len(sys.argv) > 2 else "all"
+    parser = argparse.ArgumentParser(
+        description="Run ACID validation tests"
+    )
+    parser.add_argument(
+        "--test",
+        default="all",
+        help=(
+            "Test to run: atomicity, consistency, isolation, durability, "
+            "all, advanced, or advanced_<name>"
+        ),
+    )
+
+    args = parser.parse_args()
+    test_name = args.test
     
     if test_name == "all":
         results = run_all_tests()

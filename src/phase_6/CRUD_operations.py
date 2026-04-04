@@ -446,10 +446,14 @@ def create_operation(parsed_query, db_analysis):
 
     def apply_mongo_create():
         processed_mongo_record = processNode(mongo_payload, "", mongo_db, strategy_map)
+        # Keep SQL and Mongo identity aligned for cross-database atomicity checks.
+        processed_mongo_record["_id"] = record_id
         return mongo_db[entity].insert_one(processed_mongo_record)
 
     def compensate_mongo_create():
-        mongo_db[entity].delete_one({"_id": record_id})
+        # Support rollback for both legacy docs keyed by record_id field and
+        # new docs keyed by _id == record_id.
+        mongo_db[entity].delete_many({"$or": [{"_id": record_id}, {"record_id": record_id}]})
 
     def verify_mongo_create(result):
         return getattr(result, "acknowledged", False)
