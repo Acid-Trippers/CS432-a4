@@ -145,6 +145,50 @@ def _write_unknown_records(records):
     _atomic_write_json(_unknown_data_file_path(), records)
 
 
+def _load_top_level_schema_fields():
+    """Load top-level scalar fields from metadata for stable READ column shape."""
+    try:
+        with open(METADATA_FILE, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+    except Exception:
+        return []
+
+    fields = []
+    for item in metadata.get("fields", []):
+        name = item.get("field_name")
+        if not name:
+            continue
+
+        # Only include root-level scalar/object keys used by dashboard tables.
+        if item.get("nesting_depth", 0) != 0:
+            continue
+        if item.get("is_array"):
+            continue
+        if "." in name or "[]" in name:
+            continue
+
+        fields.append(name)
+
+    return fields
+
+
+def _hydrate_missing_fields(records_by_id):
+    """Backfill missing fields with None so sparse records expose full schema columns."""
+    if not records_by_id:
+        return records_by_id
+
+    schema_fields = _load_top_level_schema_fields()
+    if not schema_fields:
+        return records_by_id
+
+    for record in records_by_id.values():
+        for field_name in schema_fields:
+            if field_name not in record:
+                record[field_name] = None
+
+    return records_by_id
+
+
 def _sql_records_by_ids(entity, record_ids):
     if not sql_available:
         return []
@@ -357,6 +401,7 @@ def read_operation(parsed_query, db_analysis):
     print(f"{'─'*60}")
     
     merged_results = merge_results_by_record_id(results)
+    merged_results = _hydrate_missing_fields(merged_results)
     print(f"[MERGE] Merged {len(merged_results)} unique records")
     print(f"[MERGE] Sample keys: {list(merged_results.keys())[:5]}")
     
