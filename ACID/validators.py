@@ -199,11 +199,14 @@ def consistency_test():
             session.close()
             return {"test": "consistency", "passed": False, "error": "Duplicate insert accepted!"}
         except Exception as e:
-            # Constraint violation = expected
+            # Constraint violation = expected and validates consistency
             session.rollback()
             session.close()
             constraint_error = "duplicate" in str(e).lower() or "unique" in str(e).lower() or "primary" in str(e).lower()
-            return {"test": "consistency", "passed": constraint_error, "error": str(e)[:100]}
+            if constraint_error:
+                return {"test": "consistency", "passed": True, "constraint_enforced": "Unique constraint correctly rejected duplicate"}
+            else:
+                return {"test": "consistency", "passed": False, "error": str(e)[:100]}
     
     except Exception as e:
         return {"test": "consistency", "passed": False, "error": str(e)[:100]}

@@ -12,6 +12,7 @@ from src.config import (
 from src.phase_5.sql_engine import SQLEngine
 from src.phase_5.mongo_engine import determineMongoStrategy, processNode
 from src.phase_6.transaction_coordinator import TransactionCoordinator, TransactionStep
+from src.phase_6.conflict_detector import get_conflict_detector, ConflictException
 from pymongo import MongoClient, errors
 
 # Initialize SQL Engine gracefully (non-blocking if PostgreSQL unavailable)
@@ -563,6 +564,53 @@ def update_operation(parsed_query, db_analysis):
         print(f"\n[WARNING] No filters specified - will UPDATE ALL records in all databases")
     
     # ============================================================================
+    # CONFLICT DETECTION: Check for field-level conflicts before proceeding
+    # ============================================================================
+    print(f"\n{'─'*60}")
+    print("[CONFLICT DETECTION] Checking for field-level conflicts...")
+    print(f"{'─'*60}")
+    
+    # Extract fields being read (from WHERE clause) and written (from SET clause)
+    read_fields = set(filters.keys()) if filters else set()
+    write_fields = set(payload.keys()) if payload else set()
+    
+    print(f"[Fields] Read (WHERE): {read_fields}, Write (SET): {write_fields}")
+    
+    detector = get_conflict_detector()
+    conflict_info = detector.check_conflict(
+        read_fields=read_fields,
+        write_fields=write_fields,
+        entity=entity
+    )
+    
+    if conflict_info:
+        print(f"\n[CONFLICT DETECTED]")
+        print(f"  Conflicting TX: {conflict_info['conflicting_tx_id'][:8]}")
+        print(f"  Overlapping fields: {conflict_info['field_overlap']}")
+        print(f"  Message: {conflict_info['message']}")
+        
+        return {
+            "operation": "UPDATE",
+            "status": "conflict",
+            "entity": entity,
+            "error": conflict_info['message'],
+            "conflict_info": {
+                "conflicting_transaction": conflict_info['conflicting_tx_id'][:8],
+                "overlapping_fields": list(conflict_info['field_overlap']),
+                "recommendation": "Please retry your update query - data may have changed"
+            },
+            "transaction": None,
+        }
+    
+    # Register this transaction for conflict tracking
+    tx_id = detector.register_transaction(
+        read_fields=read_fields,
+        write_fields=write_fields,
+        entity=entity
+    )
+    print(f"\n[TRANSACTION REGISTERED] TX ID: {tx_id[:8]}")
+    
+    # ============================================================================
     # PHASE 1: FIND record_ids matching filters
     # ============================================================================
     print(f"\n{'─'*60}")
@@ -661,6 +709,7 @@ def update_operation(parsed_query, db_analysis):
     sql_ids = matching_record_ids.get("SQL", [])
     if "SQL" in databases_needed and sql_ids and sql_updates:
         if not sql_available:
+            detector.abort(tx_id)
             return {
                 "operation": "UPDATE",
                 "status": "failed",
@@ -697,6 +746,7 @@ def update_operation(parsed_query, db_analysis):
     mongo_ids = matching_record_ids.get("MONGO", [])
     if "MONGO" in databases_needed and mongo_ids and mongo_updates:
         if not mongo_available:
+            detector.abort(tx_id)
             return {
                 "operation": "UPDATE",
                 "status": "failed",
@@ -763,6 +813,8 @@ def update_operation(parsed_query, db_analysis):
         )
 
     if not steps:
+        detector.commit(tx_id)
+        print(f"[TRANSACTION COMMITTED] TX ID: {tx_id[:8]}")
         return {
             "operation": "UPDATE",
             "status": "success",
@@ -792,6 +844,9 @@ def update_operation(parsed_query, db_analysis):
     print(f"  Unknown: {updated_summary.get('Unknown', 0)}")
     print(f"  TOTAL: {total_updated}")
     print(f"{'='*60}\n")
+    
+    detector.commit(tx_id)
+    print(f"[TRANSACTION COMMITTED] TX ID: {tx_id[:8]}")
     
     return {
         "operation": "UPDATE",

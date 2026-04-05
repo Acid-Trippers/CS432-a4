@@ -141,8 +141,13 @@ def main():
         status = "✓ PASS" if passed else "✗ FAIL"
         print(f"\n{test.upper():25} {status}")
         for key, value in result.items():
-            if key not in ["test", "passed"]:
-                print(f"  {key}: {value}")
+            # Skip internal fields and error field for passing tests
+            if key in ["test", "passed"]:
+                continue
+            # Only show error for failed tests
+            if key == "error" and passed:
+                continue
+            print(f"  {key}: {value}")
 
 
 if __name__ == "__main__":
