@@ -566,6 +566,10 @@ function renderDashboardStats(stats) {
     "documents",
     "main_records",
   );
+  const syncedTotal =
+    sqlReachable && mongoReachable
+      ? Math.min(sqlTotal, mongoTotal)
+      : Math.max(sqlTotal, mongoTotal);
 
   setDotState(sqlDot, sqlReachable);
   setDotState(mongoDot, mongoReachable);
@@ -583,8 +587,10 @@ function renderDashboardStats(stats) {
     }
   }
 
-  if (systemMainTotal)
-    systemMainTotal.textContent = String(Math.max(sqlTotal, mongoTotal));
+  if (systemMainTotal) {
+    systemMainTotal.textContent = String(syncedTotal);
+    systemMainTotal.title = `SQL: ${sqlTotal} | Mongo: ${mongoTotal}`;
+  }
 
   const unifiedStatsSet = new Set();
   sqlTables.forEach((t) => unifiedStatsSet.add(t.name));
@@ -1214,6 +1220,7 @@ function attachDashboardHandlers() {
         const result = await apiPost("/api/query", payload);
         lastQueryResult = result;
         renderQueryResult(result);
+        await refreshDashboardStats();
         if (downloadButton) downloadButton.disabled = false;
         setFeedback(queryFeedback, "Query completed.", false);
       } catch (error) {

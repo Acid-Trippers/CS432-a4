@@ -1029,6 +1029,16 @@ def delete_operation(parsed_query, db_analysis):
     print(f"\n{'─'*60}")
     print("[PHASE 2] Deleting records by record_id...")
     print(f"{'─'*60}")
+
+    matched_record_ids = sorted(
+        {
+            record_id
+            for ids in matching_record_ids.values()
+            for record_id in ids
+            if record_id is not None
+        }
+    )
+    print(f"[PHASE 2] Unified matched record_ids: {len(matched_record_ids)}")
     
     deleted_summary = {"SQL": 0, "MONGO": 0, "Unknown": 0}
 
@@ -1036,16 +1046,8 @@ def delete_operation(parsed_query, db_analysis):
     steps = []
     tx_metadata = {}
 
-    sql_ids = matching_record_ids.get("SQL", [])
-    if "SQL" in databases_needed and sql_ids:
-        if not sql_available:
-            return {
-                "operation": "DELETE",
-                "status": "failed",
-                "entity": entity,
-                "error": "SQL participant unavailable",
-            }
-
+    sql_ids = matched_record_ids
+    if sql_available and sql_ids:
         participants.append("SQL")
         sql_before = _sql_records_by_ids(entity, sql_ids)
         tx_metadata["sql_record_count"] = len(sql_before)
@@ -1072,16 +1074,8 @@ def delete_operation(parsed_query, db_analysis):
             )
         )
 
-    mongo_ids = matching_record_ids.get("MONGO", [])
-    if "MONGO" in databases_needed and mongo_ids:
-        if not mongo_available:
-            return {
-                "operation": "DELETE",
-                "status": "failed",
-                "entity": entity,
-                "error": "MongoDB participant unavailable",
-            }
-
+    mongo_ids = matched_record_ids
+    if mongo_available and mongo_ids:
         participants.append("MONGO")
         mongo_collection = mongo_db[entity]
         mongo_before = list(mongo_collection.find({"_id": {"$in": mongo_ids}}))
@@ -1106,8 +1100,8 @@ def delete_operation(parsed_query, db_analysis):
             )
         )
 
-    unknown_ids = matching_record_ids.get("Unknown", [])
-    if "Unknown" in databases_needed and unknown_ids:
+    unknown_ids = matched_record_ids
+    if unknown_ids:
         participants.append("Unknown")
         unknown_before = _load_unknown_records()
         tx_metadata["unknown_record_count"] = len(unknown_before)
