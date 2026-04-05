@@ -83,6 +83,171 @@ const ADVANCED_ACID_TESTS = [
   "index_integrity",
 ];
 
+const ACID_TEST_DETAILS = {
+  atomicity: {
+    performed:
+      "Triggered a cross-database failure scenario and verified rollback behavior.",
+    passCriteria:
+      "No partial write should remain and transaction state should indicate rollback.",
+  },
+  consistency: {
+    performed:
+      "Attempted a duplicate/invalid write to validate constraint enforcement.",
+    passCriteria: "Database constraints must reject invalid state transitions.",
+  },
+  isolation: {
+    performed:
+      "Ran concurrent reads and checked whether all readers observed a stable committed state.",
+    passCriteria:
+      "Concurrent reads should be consistent with no dirty/intermediate state leakage.",
+  },
+  durability: {
+    performed:
+      "Committed a record, then re-read it repeatedly from SQL and Mongo.",
+    passCriteria: "Committed data must remain visible across repeated checks.",
+  },
+  multi_record_atomicity: {
+    performed:
+      "Inserted multiple records in one transaction and validated all-or-nothing behavior.",
+    passCriteria: "Expected full commit of all records or complete rollback.",
+  },
+  cross_db_atomicity: {
+    performed:
+      "Validated success and forced-failure paths across SQL and Mongo in a single transaction flow.",
+    passCriteria:
+      "Success path must commit in both stores; failure path must roll back consistently.",
+  },
+  not_null_constraint: {
+    performed: "Attempted inserts violating required-field constraints.",
+    passCriteria: "NOT NULL violations must be rejected by the data layer.",
+  },
+  schema_validation: {
+    performed: "Ran writes with schema/type checks enabled.",
+    passCriteria:
+      "Invalid schema/type payloads should be rejected; valid payloads should pass.",
+  },
+  dirty_read_prevention: {
+    performed:
+      "Simulated concurrent operations to detect visibility of uncommitted writes.",
+    passCriteria: "Uncommitted data must not be visible to other transactions.",
+  },
+  concurrent_read_write_isolation: {
+    performed:
+      "Executed concurrent reads and writes to verify isolation guarantees.",
+    passCriteria:
+      "No inconsistent intermediate state should be observed by readers.",
+  },
+  concurrent_insert_lost_updates: {
+    performed:
+      "Ran competing insert/update operations under concurrency pressure.",
+    passCriteria:
+      "System should avoid lost updates and preserve intended writes.",
+  },
+  concurrent_update_atomicity: {
+    performed:
+      "Applied concurrent updates and inspected final state coherence.",
+    passCriteria:
+      "Concurrent updates should remain atomic and leave consistent final data.",
+  },
+  stress_test_concurrent_ops: {
+    performed: "Executed high-concurrency mixed operations.",
+    passCriteria:
+      "No integrity break, crash, or invariant violation under load.",
+  },
+  persistent_connection: {
+    performed: "Exercised repeated operations over persistent DB connections.",
+    passCriteria:
+      "Connections should remain healthy without breaking transaction correctness.",
+  },
+  index_integrity: {
+    performed: "Validated behavior around indexed reads/writes after updates.",
+    passCriteria: "Indexes should remain consistent with stored records.",
+  },
+};
+
+function humanizeAcidLabel(value) {
+  return String(value || "")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatAcidMetricValue(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) =>
+        typeof item === "boolean" ? (item ? "true" : "false") : String(item),
+      )
+      .join(", ");
+  }
+
+  if (value && typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+
+  return String(value);
+}
+
+function buildAcidSummary(testName, payload, isError = false) {
+  const info = ACID_TEST_DETAILS[testName] || {};
+  const testLabel = humanizeAcidLabel(testName);
+  const lines = [];
+
+  lines.push(`Test: ${testLabel}`);
+  if (info.performed) {
+    lines.push(`Performed: ${info.performed}`);
+  }
+  if (info.passCriteria) {
+    lines.push(`Pass Criteria: ${info.passCriteria}`);
+  }
+
+  if (isError || payload?.error) {
+    const errorText = payload?.error || "Unknown error";
+    lines.push("");
+    lines.push(`Observed Output: ${errorText}`);
+    lines.push("Conclusion: FAIL (test execution returned an error).");
+    return lines.join("\n");
+  }
+
+  const evidenceEntries = Object.entries(payload || {}).filter(
+    ([key]) => !["test", "passed", "error"].includes(key),
+  );
+
+  lines.push("");
+  if (evidenceEntries.length > 0) {
+    lines.push("Observed Evidence:");
+    evidenceEntries.slice(0, 10).forEach(([key, value]) => {
+      lines.push(
+        `- ${humanizeAcidLabel(key)}: ${formatAcidMetricValue(value)}`,
+      );
+    });
+  } else {
+    lines.push(
+      "Observed Evidence: Validator returned PASS/FAIL without extra metrics.",
+    );
+  }
+
+  lines.push("");
+  if (payload?.passed === true) {
+    lines.push(
+      "Conclusion: PASS (observed evidence satisfied the pass criteria).",
+    );
+  } else if (payload?.passed === false) {
+    lines.push(
+      "Conclusion: FAIL (observed evidence did not satisfy the pass criteria).",
+    );
+  } else {
+    lines.push(
+      "Conclusion: DONE (result received, but validator did not report explicit pass/fail).",
+    );
+  }
+
+  return lines.join("\n");
+}
+
 const QUERY_TEMPLATES = {
   READ: {
     operation: "READ",
@@ -1038,10 +1203,10 @@ function setAcidBadge(testName, label, variant) {
 
 function renderAcidResult(testName, payload, isError = false) {
   const details = document.getElementById(`details-${testName}`);
-  const jsonTarget = document.getElementById(`json-${testName}`);
+  const summaryTarget = document.getElementById(`json-${testName}`);
 
-  if (jsonTarget) {
-    jsonTarget.textContent = JSON.stringify(payload, null, 2);
+  if (summaryTarget) {
+    summaryTarget.textContent = buildAcidSummary(testName, payload, isError);
   }
   if (details) {
     details.classList.remove("hidden");
@@ -1135,7 +1300,7 @@ async function runAllAcidTests() {
 async function runAllAdvancedAcidTests() {
   const feedback = document.getElementById("acid-feedback");
   const runAllAdvButton = document.getElementById("btn-run-all-advanced-acid");
-  
+
   if (runAllAdvButton) {
     runAllAdvButton.disabled = true;
     runAllAdvButton.textContent = "Running...";
@@ -1160,14 +1325,14 @@ async function runAllAdvancedAcidTests() {
         results[testName] = { passed: false, error: String(e.message || e) };
       }
     }
-    
+
     // Render all results
     ADVANCED_ACID_TESTS.forEach((testName) => {
       if (results && Object.prototype.hasOwnProperty.call(results, testName)) {
         renderAcidResult(testName, results[testName], false);
       }
     });
-    
+
     setFeedback(feedback, "All advanced ACID tests completed.", false);
   } catch (error) {
     console.error("[Advanced] Error:", error);

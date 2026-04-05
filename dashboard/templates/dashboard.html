@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -78,7 +78,7 @@
           <button id="btn-run-fetch" class="btn btn-primary" type="button">
             Run Fetch
           </button>
-        </div>
+        </details>
       </section>
 
       <p id="dashboard-feedback" class="feedback hidden" role="status"></p>
@@ -216,7 +216,7 @@
               Run Test
             </button>
             <details id="details-atomicity" class="acid-details hidden">
-              <summary>View Result JSON</summary>
+              <summary>View Test Summary</summary>
               <pre id="json-atomicity"></pre>
             </details>
           </article>
@@ -239,7 +239,7 @@
               Run Test
             </button>
             <details id="details-consistency" class="acid-details hidden">
-              <summary>View Result JSON</summary>
+              <summary>View Test Summary</summary>
               <pre id="json-consistency"></pre>
             </details>
           </article>
@@ -262,7 +262,7 @@
               Run Test
             </button>
             <details id="details-isolation" class="acid-details hidden">
-              <summary>View Result JSON</summary>
+              <summary>View Test Summary</summary>
               <pre id="json-isolation"></pre>
             </details>
           </article>
@@ -286,20 +286,27 @@
               Run Test
             </button>
             <details id="details-durability" class="acid-details hidden">
-              <summary>View Result JSON</summary>
+              <summary>View Test Summary</summary>
               <pre id="json-durability"></pre>
             </details>
           </article>
         </div>
 
-        <div class="section-heading" style="margin-top: 2rem;">
-          <h2>Advanced ACID Tests</h2>
-          <button id="btn-run-all-advanced-acid" class="btn btn-primary" type="button">
-            Run All Advanced
-          </button>
-        </div>
+        <details class="advanced-acid-dropdown" style="margin-top: 2rem;">
+          <summary class="advanced-acid-summary">
+            <span class="advanced-acid-title">Advanced ACID Tests</span>
+            <span class="advanced-acid-meta">Expand to run advanced transactional checks</span>
+          </summary>
 
-        <div class="acid-grid">
+          <div class="advanced-acid-content">
+            <div class="section-heading compact">
+              <h3>Advanced Suite</h3>
+              <button id="btn-run-all-advanced-acid" class="btn btn-primary" type="button">
+                Run All Advanced
+              </button>
+            </div>
+
+            <div class="acid-grid">
           <article class="acid-card" data-test="multi_record_atomicity">
             <div class="acid-head">
               <h3>Multi-Record Atomicity</h3>
@@ -318,7 +325,7 @@
               Run Test
             </button>
             <details id="details-multi_record_atomicity" class="acid-details hidden">
-              <summary>View Result JSON</summary>
+              <summary>View Test Summary</summary>
               <pre id="json-multi_record_atomicity"></pre>
             </details>
           </article>
@@ -341,7 +348,7 @@
               Run Test
             </button>
             <details id="details-cross_db_atomicity" class="acid-details hidden">
-              <summary>View Result JSON</summary>
+              <summary>View Test Summary</summary>
               <pre id="json-cross_db_atomicity"></pre>
             </details>
           </article>
@@ -364,7 +371,7 @@
               Run Test
             </button>
             <details id="details-not_null_constraint" class="acid-details hidden">
-              <summary>View Result JSON</summary>
+              <summary>View Test Summary</summary>
               <pre id="json-not_null_constraint"></pre>
             </details>
           </article>
@@ -387,7 +394,7 @@
               Run Test
             </button>
             <details id="details-schema_validation" class="acid-details hidden">
-              <summary>View Result JSON</summary>
+              <summary>View Test Summary</summary>
               <pre id="json-schema_validation"></pre>
             </details>
           </article>
@@ -410,7 +417,7 @@
               Run Test
             </button>
             <details id="details-dirty_read_prevention" class="acid-details hidden">
-              <summary>View Result JSON</summary>
+              <summary>View Test Summary</summary>
               <pre id="json-dirty_read_prevention"></pre>
             </details>
           </article>
@@ -433,7 +440,7 @@
               Run Test
             </button>
             <details id="details-concurrent_read_write_isolation" class="acid-details hidden">
-              <summary>View Result JSON</summary>
+              <summary>View Test Summary</summary>
               <pre id="json-concurrent_read_write_isolation"></pre>
             </details>
           </article>
@@ -456,7 +463,7 @@
               Run Test
             </button>
             <details id="details-concurrent_insert_lost_updates" class="acid-details hidden">
-              <summary>View Result JSON</summary>
+              <summary>View Test Summary</summary>
               <pre id="json-concurrent_insert_lost_updates"></pre>
             </details>
           </article>
@@ -479,7 +486,7 @@
               Run Test
             </button>
             <details id="details-concurrent_update_atomicity" class="acid-details hidden">
-              <summary>View Result JSON</summary>
+              <summary>View Test Summary</summary>
               <pre id="json-concurrent_update_atomicity"></pre>
             </details>
           </article>
@@ -502,7 +509,7 @@
               Run Test
             </button>
             <details id="details-stress_test_concurrent_ops" class="acid-details hidden">
-              <summary>View Result JSON</summary>
+              <summary>View Test Summary</summary>
               <pre id="json-stress_test_concurrent_ops"></pre>
             </details>
           </article>
@@ -525,7 +532,7 @@
               Run Test
             </button>
             <details id="details-persistent_connection" class="acid-details hidden">
-              <summary>View Result JSON</summary>
+              <summary>View Test Summary</summary>
               <pre id="json-persistent_connection"></pre>
             </details>
           </article>
@@ -548,10 +555,12 @@
               Run Test
             </button>
             <details id="details-index_integrity" class="acid-details hidden">
-              <summary>View Result JSON</summary>
+              <summary>View Test Summary</summary>
               <pre id="json-index_integrity"></pre>
             </details>
           </article>
+            </div>
+          </div>
         </div>
       </section>
     </main>
@@ -576,3 +585,4 @@
     <script src="/static/main.js?v=2"></script>
   </body>
 </html>
+
