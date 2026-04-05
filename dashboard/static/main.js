@@ -114,18 +114,26 @@ function isDashboardPage() {
   return Boolean(document.getElementById("dashboard-root"));
 }
 
-function setFeedback(element, message, isError = false) {
+function setFeedback(element, message, level = false) {
   if (!element) return;
   element.textContent = message;
-  element.classList.remove("hidden", "error", "ok");
-  element.classList.add(isError ? "error" : "ok");
+  element.classList.remove("hidden", "error", "ok", "warn");
+  if (level === true || level === "error") {
+    element.classList.add("error");
+    return;
+  }
+  if (level === "warn") {
+    element.classList.add("warn");
+    return;
+  }
+  element.classList.add("ok");
 }
 
 function clearFeedback(element) {
   if (!element) return;
   element.classList.add("hidden");
   element.textContent = "";
-  element.classList.remove("error", "ok");
+  element.classList.remove("error", "ok", "warn");
 }
 
 function escapeHtml(value) {
@@ -282,7 +290,8 @@ function applyLandingState(status, stats) {
   if (busyNotice) busyNotice.classList.toggle("hidden", !pipelineBusy);
   if (warning) {
     const externalReachable = Boolean(stats.external_api_reachable);
-    warning.classList.toggle("hidden", externalReachable);
+    // While pipeline work is running, suppress external API noise to avoid false alarms.
+    warning.classList.toggle("hidden", externalReachable || pipelineBusy);
   }
 
   if (setupBtn) setupBtn.classList.add("hidden");
@@ -308,7 +317,12 @@ async function refreshLanding() {
     const { status, stats } = await fetchLandingState();
     applyLandingState(status, stats);
   } catch (error) {
-    setFeedback(feedback, String(error.message || error), true);
+    // During in-flight operations, transient endpoint blips are warnings, not hard errors.
+    setFeedback(
+      feedback,
+      String(error.message || error),
+      busyPollTimer ? "warn" : true,
+    );
   }
 }
 
@@ -507,7 +521,7 @@ async function refreshDashboardStatus() {
     setFeedback(
       feedback,
       "Pipeline is busy. Controls are temporarily locked.",
-      false,
+      "warn",
     );
   } else {
     clearFeedback(feedback);

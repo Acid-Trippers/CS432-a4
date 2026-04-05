@@ -188,9 +188,9 @@ select:focus {
   padding: 0.75rem 0.85rem;
   border-radius: 10px;
   line-height: 1.45;
-  border: 1px solid #ef9a9a;
-  background: #ffe4e6;
-  color: #881337;
+  border: 1px solid #f1cf65;
+  background: #fff7da;
+  color: #7a5600;
 }
 
 .feedback {
@@ -212,6 +212,12 @@ select:focus {
   background: #ffe4e6;
   color: #881337;
   border: 1px solid #ef9a9a;
+}
+
+.feedback.warn {
+  background: #fff7da;
+  color: #7a5600;
+  border: 1px solid #f1cf65;
 }
 
 .hidden {
