@@ -291,6 +291,268 @@
             </details>
           </article>
         </div>
+
+        <div class="section-heading" style="margin-top: 2rem;">
+          <h2>Advanced ACID Tests</h2>
+          <button id="btn-run-all-advanced-acid" class="btn btn-primary" type="button">
+            Run All Advanced
+          </button>
+        </div>
+
+        <div class="acid-grid">
+          <article class="acid-card" data-test="multi_record_atomicity">
+            <div class="acid-head">
+              <h3>Multi-Record Atomicity</h3>
+              <span id="badge-multi_record_atomicity" class="result-badge neutral"
+                >Not Run</span
+              >
+            </div>
+            <p class="acid-description">
+              Tests atomicity across multiple records and databases.
+            </p>
+            <button
+              class="btn run-advanced-acid-btn"
+              data-test="multi_record_atomicity"
+              type="button"
+            >
+              Run Test
+            </button>
+            <details id="details-multi_record_atomicity" class="acid-details hidden">
+              <summary>View Result JSON</summary>
+              <pre id="json-multi_record_atomicity"></pre>
+            </details>
+          </article>
+
+          <article class="acid-card" data-test="cross_db_atomicity">
+            <div class="acid-head">
+              <h3>Cross-DB Atomicity</h3>
+              <span id="badge-cross_db_atomicity" class="result-badge neutral"
+                >Not Run</span
+              >
+            </div>
+            <p class="acid-description">
+              Ensures transactions maintain atomicity across SQL and MongoDB.
+            </p>
+            <button
+              class="btn run-advanced-acid-btn"
+              data-test="cross_db_atomicity"
+              type="button"
+            >
+              Run Test
+            </button>
+            <details id="details-cross_db_atomicity" class="acid-details hidden">
+              <summary>View Result JSON</summary>
+              <pre id="json-cross_db_atomicity"></pre>
+            </details>
+          </article>
+
+          <article class="acid-card" data-test="not_null_constraint">
+            <div class="acid-head">
+              <h3>NOT NULL Constraint</h3>
+              <span id="badge-not_null_constraint" class="result-badge neutral"
+                >Not Run</span
+              >
+            </div>
+            <p class="acid-description">
+              Validates NOT NULL constraint enforcement across databases.
+            </p>
+            <button
+              class="btn run-advanced-acid-btn"
+              data-test="not_null_constraint"
+              type="button"
+            >
+              Run Test
+            </button>
+            <details id="details-not_null_constraint" class="acid-details hidden">
+              <summary>View Result JSON</summary>
+              <pre id="json-not_null_constraint"></pre>
+            </details>
+          </article>
+
+          <article class="acid-card" data-test="schema_validation">
+            <div class="acid-head">
+              <h3>Schema Validation</h3>
+              <span id="badge-schema_validation" class="result-badge neutral"
+                >Not Run</span
+              >
+            </div>
+            <p class="acid-description">
+              Checks schema integrity and field type validation.
+            </p>
+            <button
+              class="btn run-advanced-acid-btn"
+              data-test="schema_validation"
+              type="button"
+            >
+              Run Test
+            </button>
+            <details id="details-schema_validation" class="acid-details hidden">
+              <summary>View Result JSON</summary>
+              <pre id="json-schema_validation"></pre>
+            </details>
+          </article>
+
+          <article class="acid-card" data-test="dirty_read_prevention">
+            <div class="acid-head">
+              <h3>Dirty Read Prevention</h3>
+              <span id="badge-dirty_read_prevention" class="result-badge neutral"
+                >Not Run</span
+              >
+            </div>
+            <p class="acid-description">
+              Ensures uncommitted writes are not visible to other transactions.
+            </p>
+            <button
+              class="btn run-advanced-acid-btn"
+              data-test="dirty_read_prevention"
+              type="button"
+            >
+              Run Test
+            </button>
+            <details id="details-dirty_read_prevention" class="acid-details hidden">
+              <summary>View Result JSON</summary>
+              <pre id="json-dirty_read_prevention"></pre>
+            </details>
+          </article>
+
+          <article class="acid-card" data-test="concurrent_read_write_isolation">
+            <div class="acid-head">
+              <h3>Concurrent Read/Write Isolation</h3>
+              <span id="badge-concurrent_read_write_isolation" class="result-badge neutral"
+                >Not Run</span
+              >
+            </div>
+            <p class="acid-description">
+              Tests isolation under concurrent read and write operations.
+            </p>
+            <button
+              class="btn run-advanced-acid-btn"
+              data-test="concurrent_read_write_isolation"
+              type="button"
+            >
+              Run Test
+            </button>
+            <details id="details-concurrent_read_write_isolation" class="acid-details hidden">
+              <summary>View Result JSON</summary>
+              <pre id="json-concurrent_read_write_isolation"></pre>
+            </details>
+          </article>
+
+          <article class="acid-card" data-test="concurrent_insert_lost_updates">
+            <div class="acid-head">
+              <h3>Concurrent Insert Lost Updates</h3>
+              <span id="badge-concurrent_insert_lost_updates" class="result-badge neutral"
+                >Not Run</span
+              >
+            </div>
+            <p class="acid-description">
+              Detects and prevents lost updates during concurrent inserts.
+            </p>
+            <button
+              class="btn run-advanced-acid-btn"
+              data-test="concurrent_insert_lost_updates"
+              type="button"
+            >
+              Run Test
+            </button>
+            <details id="details-concurrent_insert_lost_updates" class="acid-details hidden">
+              <summary>View Result JSON</summary>
+              <pre id="json-concurrent_insert_lost_updates"></pre>
+            </details>
+          </article>
+
+          <article class="acid-card" data-test="concurrent_update_atomicity">
+            <div class="acid-head">
+              <h3>Concurrent Update Atomicity</h3>
+              <span id="badge-concurrent_update_atomicity" class="result-badge neutral"
+                >Not Run</span
+              >
+            </div>
+            <p class="acid-description">
+              Ensures concurrent updates maintain atomicity.
+            </p>
+            <button
+              class="btn run-advanced-acid-btn"
+              data-test="concurrent_update_atomicity"
+              type="button"
+            >
+              Run Test
+            </button>
+            <details id="details-concurrent_update_atomicity" class="acid-details hidden">
+              <summary>View Result JSON</summary>
+              <pre id="json-concurrent_update_atomicity"></pre>
+            </details>
+          </article>
+
+          <article class="acid-card" data-test="stress_test_concurrent_ops">
+            <div class="acid-head">
+              <h3>Stress Test Concurrent Ops</h3>
+              <span id="badge-stress_test_concurrent_ops" class="result-badge neutral"
+                >Not Run</span
+              >
+            </div>
+            <p class="acid-description">
+              High-concurrency stress test with many simultaneous operations.
+            </p>
+            <button
+              class="btn run-advanced-acid-btn"
+              data-test="stress_test_concurrent_ops"
+              type="button"
+            >
+              Run Test
+            </button>
+            <details id="details-stress_test_concurrent_ops" class="acid-details hidden">
+              <summary>View Result JSON</summary>
+              <pre id="json-stress_test_concurrent_ops"></pre>
+            </details>
+          </article>
+
+          <article class="acid-card" data-test="persistent_connection">
+            <div class="acid-head">
+              <h3>Persistent Connection</h3>
+              <span id="badge-persistent_connection" class="result-badge neutral"
+                >Not Run</span
+              >
+            </div>
+            <p class="acid-description">
+              Validates connection pooling and persistence.
+            </p>
+            <button
+              class="btn run-advanced-acid-btn"
+              data-test="persistent_connection"
+              type="button"
+            >
+              Run Test
+            </button>
+            <details id="details-persistent_connection" class="acid-details hidden">
+              <summary>View Result JSON</summary>
+              <pre id="json-persistent_connection"></pre>
+            </details>
+          </article>
+
+          <article class="acid-card" data-test="index_integrity">
+            <div class="acid-head">
+              <h3>Index Integrity</h3>
+              <span id="badge-index_integrity" class="result-badge neutral"
+                >Not Run</span
+              >
+            </div>
+            <p class="acid-description">
+              Ensures indexes remain consistent across updates.
+            </p>
+            <button
+              class="btn run-advanced-acid-btn"
+              data-test="index_integrity"
+              type="button"
+            >
+              Run Test
+            </button>
+            <details id="details-index_integrity" class="acid-details hidden">
+              <summary>View Result JSON</summary>
+              <pre id="json-index_integrity"></pre>
+            </details>
+          </article>
+        </div>
       </section>
     </main>
     <!-- Progress Bar Overlay -->

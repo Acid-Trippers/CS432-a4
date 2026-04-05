@@ -69,6 +69,20 @@ const BASIC_ACID_TESTS = [
   "durability",
 ];
 
+const ADVANCED_ACID_TESTS = [
+  "multi_record_atomicity",
+  "cross_db_atomicity",
+  "not_null_constraint",
+  "schema_validation",
+  "dirty_read_prevention",
+  "concurrent_read_write_isolation",
+  "concurrent_insert_lost_updates",
+  "concurrent_update_atomicity",
+  "stress_test_concurrent_ops",
+  "persistent_connection",
+  "index_integrity",
+];
+
 const QUERY_TEMPLATES = {
   READ: {
     operation: "READ",
@@ -484,6 +498,7 @@ function setDashboardControlsDisabled(disabled) {
     document.getElementById("query-column-sort"),
     document.getElementById("query-row-sort"),
     document.getElementById("btn-run-all-acid"),
+    document.getElementById("btn-run-all-advanced-acid"),
     document.getElementById("fetch-count"),
     document.getElementById("btn-download-json"),
   ];
@@ -493,6 +508,10 @@ function setDashboardControlsDisabled(disabled) {
   });
 
   document.querySelectorAll(".run-acid-btn").forEach((button) => {
+    button.disabled = disabled;
+  });
+
+  document.querySelectorAll(".run-advanced-acid-btn").forEach((button) => {
     button.disabled = disabled;
   });
 }
@@ -1041,10 +1060,10 @@ function renderAcidResult(testName, payload, isError = false) {
   setAcidBadge(testName, "DONE", "neutral");
 }
 
-async function runSingleAcidTest(testName) {
+async function runSingleAcidTest(testName, isAdvanced = false) {
   const feedback = document.getElementById("acid-feedback");
   const button = document.querySelector(
-    `.run-acid-btn[data-test="${testName}"]`,
+    `.run-${isAdvanced ? "advanced-" : ""}acid-btn[data-test="${testName}"]`,
   );
   const previousText = button?.textContent || "Run Test";
 
@@ -1053,16 +1072,25 @@ async function runSingleAcidTest(testName) {
     button.textContent = "Running...";
   }
   clearFeedback(feedback);
+  showProgress(`Running ${testName}...`);
 
   try {
-    const result = await apiGet(`/api/acid/${testName}`);
+    // Use advanced endpoint if it's an advanced test
+    const endpoint = isAdvanced
+      ? `/api/acid/advanced/${testName}`
+      : `/api/acid/${testName}`;
+    console.log(`[ACID] Fetching: ${endpoint}`);
+    const result = await apiGet(endpoint);
+    console.log(`[ACID] Result:`, result);
     renderAcidResult(testName, result, false);
     setFeedback(feedback, `${testName} test completed.`, false);
   } catch (error) {
+    console.error(`[ACID] Error for ${testName}:`, error);
     const payload = { error: String(error.message || error) };
     renderAcidResult(testName, payload, true);
     setFeedback(feedback, payload.error, true);
   } finally {
+    hideProgress();
     if (button) {
       button.disabled = false;
       button.textContent = previousText;
@@ -1099,6 +1127,58 @@ async function runAllAcidTests() {
       runAllButton.textContent = "Run All";
     }
     document.querySelectorAll(".run-acid-btn").forEach((button) => {
+      button.disabled = false;
+    });
+  }
+}
+
+async function runAllAdvancedAcidTests() {
+  const feedback = document.getElementById("acid-feedback");
+  const runAllAdvButton = document.getElementById("btn-run-all-advanced-acid");
+  
+  if (runAllAdvButton) {
+    runAllAdvButton.disabled = true;
+    runAllAdvButton.textContent = "Running...";
+  }
+  document.querySelectorAll(".run-advanced-acid-btn").forEach((button) => {
+    button.disabled = true;
+  });
+
+  clearFeedback(feedback);
+  showProgress("Running advanced ACID tests...");
+
+  try {
+    // Fetch results for each advanced test sequentially
+    const results = {};
+    for (const testName of ADVANCED_ACID_TESTS) {
+      try {
+        console.log(`[Advanced] Running: ${testName}`);
+        results[testName] = await apiGet(`/api/acid/advanced/${testName}`);
+        console.log(`[Advanced] Completed: ${testName}`, results[testName]);
+      } catch (e) {
+        console.error(`[Advanced] Failed: ${testName}`, e);
+        results[testName] = { passed: false, error: String(e.message || e) };
+      }
+    }
+    
+    // Render all results
+    ADVANCED_ACID_TESTS.forEach((testName) => {
+      if (results && Object.prototype.hasOwnProperty.call(results, testName)) {
+        renderAcidResult(testName, results[testName], false);
+      }
+    });
+    
+    setFeedback(feedback, "All advanced ACID tests completed.", false);
+  } catch (error) {
+    console.error("[Advanced] Error:", error);
+    setFeedback(feedback, String(error.message || error), true);
+  } finally {
+    hideProgress();
+    if (runAllAdvButton) {
+      runAllAdvButton.disabled = false;
+      runAllAdvButton.textContent = "Run All Advanced";
+    }
+    document.querySelectorAll(".run-advanced-acid-btn").forEach((button) => {
       button.disabled = false;
     });
   }
@@ -1253,13 +1333,26 @@ function attachDashboardHandlers() {
     button.addEventListener("click", async () => {
       const testName = button.getAttribute("data-test");
       if (!testName) return;
-      await runSingleAcidTest(testName);
+      await runSingleAcidTest(testName, false);
     });
   });
 
   const runAllButton = document.getElementById("btn-run-all-acid");
   if (runAllButton) {
     runAllButton.addEventListener("click", runAllAcidTests);
+  }
+
+  document.querySelectorAll(".run-advanced-acid-btn").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const testName = button.getAttribute("data-test");
+      if (!testName) return;
+      await runSingleAcidTest(testName, true);
+    });
+  });
+
+  const runAllAdvButton = document.getElementById("btn-run-all-advanced-acid");
+  if (runAllAdvButton) {
+    runAllAdvButton.addEventListener("click", runAllAdvancedAcidTests);
   }
 
   window.addEventListener("beforeunload", () => {
