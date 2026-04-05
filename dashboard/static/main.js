@@ -532,49 +532,53 @@ function renderReadTable(result, page = 1) {
 	const displayRecords = records.slice(startIdx, startIdx + PAGE_SIZE);
 
 	const columnSet = new Set();
-	records.forEach((record) => {
-		Object.keys(record).forEach((key) => columnSet.add(key));
-	});
+	records.forEach((record) => Object.keys(record).forEach((key) => columnSet.add(key)));
 	const columns = Array.from(columnSet);
 
 	if (!columns.length) {
 		return '<p class="meta-text">Records were returned, but all visible fields are hidden in this view.</p>';
 	}
 
-	const headerHtml = columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("");
-	const rowsHtml = displayRecords
-		.map((record) => {
-			const rowCells = columns
-				.map((column) => `<td>${valueToCell(record[column])}</td>`)
-				.join("");
-			return `<tr>${rowCells}</tr>`;
-		})
-		.join("");
+	const from = startIdx + 1;
+	const to = Math.min(startIdx + displayRecords.length, records.length);
+
+	const headerHtml = columns.map((col) =>
+		`<th title="${escapeHtml(col)}">${escapeHtml(col)}</th>`
+	).join("");
+
+	const rowsHtml = displayRecords.map((record) =>
+		`<tr>${columns.map((col) => {
+			const raw = record[col];
+			const display = valueToCell(raw);
+			const tip = (raw !== null && raw !== undefined)
+				? escapeHtml(String(typeof raw === "object" ? JSON.stringify(raw) : raw))
+				: "";
+			return `<td title="${tip}">${display}</td>`;
+		}).join("")}</tr>`
+	).join("");
 
 	let paginationHtml = "";
 	if (totalPages > 1) {
 		paginationHtml = `
 			<div class="pagination-controls">
-				<button class="btn btn-sm" onclick="changePage(${page - 1})" ${page === 1 ? "disabled" : ""}>Previous</button>
+				<button class="btn btn-sm" onclick="changePage(${page - 1})" ${page === 1 ? "disabled" : ""}>← Prev</button>
 				<span class="pagination-info">Page ${page} of ${totalPages}</span>
-				<button class="btn btn-sm" onclick="changePage(${page + 1})" ${page === totalPages ? "disabled" : ""}>Next</button>
-			</div>
-		`;
+				<button class="btn btn-sm" onclick="changePage(${page + 1})" ${page === totalPages ? "disabled" : ""}>Next →</button>
+			</div>`;
 	}
 
 	return `
+		<div class="result-table-meta">
+			<span>${from}–${to} of ${records.length} records</span>
+			<span>${columns.length} columns · scroll horizontally to see all</span>
+		</div>
 		<div class="result-table-wrap">
 			<table class="result-table">
-				<thead>
-					<tr>${headerHtml}</tr>
-				</thead>
-				<tbody>
-					${rowsHtml}
-				</tbody>
+				<thead><tr>${headerHtml}</tr></thead>
+				<tbody>${rowsHtml}</tbody>
 			</table>
 		</div>
-		${paginationHtml}
-	`;
+		${paginationHtml}`;
 }
 
 window.changePage = function(newPage) {

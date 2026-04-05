@@ -222,8 +222,12 @@ select:focus {
 	display: grid;
 	align-content: start;
 	gap: 1rem;
-	overflow-x: hidden;
 }
+
+.dashboard-shell > * {
+	min-width: 0;
+}
+
 
 .dashboard-header {
 	display: grid;
@@ -269,6 +273,8 @@ select:focus {
 
 .dashboard-section {
 	padding: 1.1rem;
+	min-width: 0;
+	overflow: hidden;
 }
 
 .section-heading {
@@ -396,6 +402,12 @@ select:focus {
 	display: grid;
 	gap: 0.4rem;
 	min-width: 0;
+	width: 100%;
+	overflow: hidden;
+}
+
+.results-panel > * {
+	min-width: 0;
 }
 
 .pagination-controls {
@@ -419,29 +431,84 @@ select:focus {
 	color: var(--muted);
 }
 
+/* ── Query results table ─────────────────────────────── */
+
+.result-table-meta {
+	font-family: "IBM Plex Mono", monospace;
+	font-size: 0.75rem;
+	color: #496a56;
+	padding: 0.3rem 0.1rem 0.4rem;
+	display: flex;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 0.25rem;
+}
+
+/* The ONE element that scrolls. Everything above it just flows normally. */
 .result-table-wrap {
+	display: block;
 	width: 100%;
-	max-width: 100%;
 	min-width: 0;
+	max-width: 100%;
 	overflow-x: auto;
 	overflow-y: auto;
 	max-height: 480px;
-	border-radius: 8px;
-	border: 1px solid #d7e2d3;
-	background: #ffffff;
-	position: relative;
+	border: 1px solid #d0dccb;
+	border-radius: 10px;
+	background: #fff;
 }
 
-.result-table,
-.kv-table {
-	width: max-content;
-	min-width: 100%;
+.result-table {
 	border-collapse: collapse;
-	font-size: 0.88rem;
+	font-size: 0.82rem;
+	/* width is intentionally NOT set here — JS sets it inline */
 }
 
 .result-table th,
-.result-table td,
+.result-table td {
+	padding: 0.42rem 0.7rem;
+	text-align: left;
+	white-space: nowrap;
+	border-right: 1px solid #e8f0e4;
+	border-bottom: 1px solid #e8f0e4;
+}
+
+.result-table th:last-child,
+.result-table td:last-child {
+	border-right: none;
+}
+
+.result-table thead tr {
+	position: sticky;
+	top: 0;
+	z-index: 2;
+}
+
+.result-table th {
+	background: #eef6e8;
+	font-weight: 600;
+	font-size: 0.76rem;
+	color: #2d5a3d;
+	letter-spacing: 0.02em;
+	border-bottom: 2px solid #c4d9bc;
+}
+
+.result-table tbody tr:hover td {
+	background: #f5fbf0;
+}
+
+.result-table tbody tr:last-child td {
+	border-bottom: none;
+}
+
+/* ── kv table (CREATE / UPDATE / DELETE summary) ─────── */
+
+.kv-table {
+	border-collapse: collapse;
+	font-size: 0.85rem;
+	width: 100%;
+}
+
 .kv-table th,
 .kv-table td {
 	border-bottom: 1px solid #e7eee4;
@@ -450,12 +517,17 @@ select:focus {
 	vertical-align: top;
 }
 
-.result-table th,
 .kv-table th {
 	background: #f4faef;
 	font-weight: 600;
 	white-space: nowrap;
+	width: 160px;
 }
+
+.kv-table tr:last-child td {
+	border-bottom: none;
+}
+
 
 .acid-grid {
 	display: grid;
