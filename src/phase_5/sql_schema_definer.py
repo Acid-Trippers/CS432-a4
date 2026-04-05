@@ -26,7 +26,7 @@ from typing import Dict, Any, Optional
 try:
     from sqlalchemy import (
         create_engine, Column, Integer, String, Float, Boolean, DateTime,
-        ForeignKey, JSON, inspect, UniqueConstraint
+        ForeignKey, JSON, inspect
     )
     from sqlalchemy.orm import declarative_base, Session
 except ImportError:
@@ -170,7 +170,7 @@ class SQLSchemaBuilder:
             if field_name == 'record_id':
                 continue  # already added as PK above
             sql_type = self.analyzer._map_type_to_sql(meta.get('dominant_type', 'string'))
-            is_unique = meta.get('cardinality') == 1.0
+            is_unique = self._should_enforce_unique(meta)
 
             attrs[field_name] = Column(sql_type, nullable=True, unique=is_unique)
 
@@ -189,7 +189,7 @@ class SQLSchemaBuilder:
             if meta.get('parent_path') == field_name and not meta.get('is_nested') and not meta.get('is_array') and meta.get('decision') == 'SQL':
                 col_name = sub_name.split('.')[-1]
                 sql_type = self.analyzer._map_type_to_sql(meta.get('dominant_type', 'string'))
-                is_unique = meta.get('cardinality') == 1.0
+                is_unique = self._should_enforce_unique(meta)
 
                 attrs[col_name] = Column(sql_type, nullable=True, unique=is_unique)
 
@@ -212,7 +212,7 @@ class SQLSchemaBuilder:
                 if meta.get('parent_path') == field_name and not meta.get('is_nested') and not meta.get('is_array') and meta.get('decision') == 'SQL':
                     col_name = sub_name.split('.')[-1]
                     sql_type = self.analyzer._map_type_to_sql(meta.get('dominant_type', 'string'))
-                    is_unique = meta.get('cardinality') == 1.0
+                    is_unique = self._should_enforce_unique(meta)
 
                     attrs[col_name] = Column(sql_type, nullable=True, unique=is_unique)
         else:
@@ -225,6 +225,7 @@ class SQLSchemaBuilder:
         """Creates all tables in the database."""
         Base.metadata.create_all(self.engine)
         self._sync_existing_columns()
+        self._sync_unique_constraints()
         print(f"[+] Database schema created at: {self.database_url}")
 
         inspector = inspect(self.engine)
@@ -238,6 +239,16 @@ class SQLSchemaBuilder:
             print(f"    PK      : {pk.get('constrained_columns', [])}")
             for fk in fks:
                 print(f"    FK      : {fk['constrained_columns']} → {fk['referred_table']}.{fk['referred_columns']}")
+
+    def _should_enforce_unique(self, meta: Dict[str, Any]) -> bool:
+        """
+        Enforce UNIQUE only when explicitly requested by user constraints.
+
+        Cardinality sampled from finite batches can be 1.0 by chance and is
+        not a safe global uniqueness signal for streaming/fetch workloads.
+        """
+        user_constraints = meta.get('user_constraints') or {}
+        return bool(user_constraints.get('is_unique') or user_constraints.get('unique'))
 
     def _sync_existing_columns(self):
         inspector = inspect(self.engine)
@@ -265,6 +276,42 @@ class SQLSchemaBuilder:
                 alter_stmt = f'ALTER TABLE "{table_name}" ADD COLUMN "{column_name}" {column_type}{nullable_sql}'
                 with self.engine.begin() as conn:
                     conn.exec_driver_sql(alter_stmt)
+
+    def _sync_unique_constraints(self):
+        """
+        Reconcile legacy UNIQUE constraints with current model definitions.
+
+        This primarily fixes local environments where older runs inferred
+        UNIQUE from sampled cardinality and created over-restrictive schemas.
+        """
+        if self.engine.dialect.name != 'postgresql':
+            return
+
+        inspector = inspect(self.engine)
+
+        for table_name, model in self.models.items():
+            if not inspector.has_table(table_name):
+                continue
+
+            model_unique_columns = {
+                column.name for column in model.__table__.columns
+                if getattr(column, 'unique', False)
+            }
+
+            for constraint in inspector.get_unique_constraints(table_name) or []:
+                constraint_name = constraint.get('name')
+                column_names = constraint.get('column_names') or []
+
+                if not constraint_name or len(column_names) != 1:
+                    continue
+
+                col_name = column_names[0]
+                if col_name in model_unique_columns:
+                    continue
+
+                drop_stmt = f'ALTER TABLE "{table_name}" DROP CONSTRAINT IF EXISTS "{constraint_name}"'
+                with self.engine.begin() as conn:
+                    conn.exec_driver_sql(drop_stmt)
 
     def get_session(self):
         from sqlalchemy.orm import sessionmaker

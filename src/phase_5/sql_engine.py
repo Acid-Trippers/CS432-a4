@@ -17,6 +17,7 @@ import logging
 
 from sqlalchemy import inspect
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from src.config import METADATA_FILE
 from .sql_schema_definer import SQLSchemaBuilder
@@ -132,6 +133,104 @@ class SQLEngine:
             logger.error(f"Failed to initialize SQL Engine: {e}")
             return False
 
+    def _is_unique_violation(self, error: Exception) -> bool:
+        """Return True when the DB error is a unique-constraint violation."""
+        if not isinstance(error, IntegrityError):
+            return False
+
+        original = getattr(error, 'orig', None)
+        if original is None:
+            return False
+
+        # PostgreSQL unique violation SQLSTATE
+        if getattr(original, 'pgcode', None) == '23505':
+            return True
+
+        # Fallback for drivers without pgcode exposure
+        return 'unique constraint' in str(original).lower() or 'duplicate key' in str(original).lower()
+
+    def _extract_constraint_name(self, error: IntegrityError) -> Optional[str]:
+        """Best-effort extraction of unique constraint name from DB error."""
+        original = getattr(error, 'orig', None)
+        if original is None:
+            return None
+
+        diag = getattr(original, 'diag', None)
+        if diag is not None:
+            name = getattr(diag, 'constraint_name', None)
+            if name:
+                return name
+
+        message = str(original)
+        marker = 'constraint "'
+        idx = message.lower().find(marker)
+        if idx == -1:
+            return None
+        start = idx + len(marker)
+        end = message.find('"', start)
+        if end == -1:
+            return None
+        return message[start:end]
+
+    def _drop_unique_constraint_if_exists(self, constraint_name: str) -> bool:
+        """Drop a unique constraint in Postgres and return True on success."""
+        if not constraint_name or self.schema_builder.engine.dialect.name != 'postgresql':
+            return False
+
+        try:
+            with self.schema_builder.engine.begin() as conn:
+                lookup_stmt = """
+                SELECT c.relname AS table_name
+                FROM pg_constraint con
+                JOIN pg_class c ON c.oid = con.conrelid
+                JOIN pg_namespace nsp ON nsp.oid = connamespace
+                WHERE con.conname = :constraint_name
+                  AND nsp.nspname = current_schema()
+                LIMIT 1
+                """
+                row = conn.exec_driver_sql(lookup_stmt, {"constraint_name": constraint_name}).first()
+                if not row:
+                    logger.error(f"Constraint not found in current schema: {constraint_name}")
+                    return False
+
+                table_name = row[0]
+                drop_stmt = f'ALTER TABLE IF EXISTS "{table_name}" DROP CONSTRAINT IF EXISTS "{constraint_name}"'
+                conn.exec_driver_sql(drop_stmt)
+            logger.warning(f"Dropped unique constraint after violation: {constraint_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to drop unique constraint {constraint_name}: {e}")
+            return False
+
+    def _insert_record_once(self, record: Dict) -> Optional[int]:
+        """Insert one record a single time without retry logic."""
+        root_data, nested_data = self.normalizer.normalize_record(record)
+
+        MainRecords = self.models.get('main_records')
+        if not MainRecords:
+            logger.error("MainRecords model not found")
+            return None
+
+        main_record = MainRecords(**root_data)
+        self.session.add(main_record)
+        self.session.flush()
+
+        record_id = main_record.record_id
+
+        for table_name, nested_records in nested_data.items():
+            NestedModel = self.models.get(table_name)
+            if not NestedModel:
+                logger.warning(f"Model for {table_name} not found, skipping")
+                continue
+
+            for nested_record in nested_records:
+                nested_record['main_records_id'] = record_id
+                self.session.add(NestedModel(**nested_record))
+
+        self.session.commit()
+        logger.info(f"Inserted record with record_id {record_id}")
+        return record_id
+
     def _build_relationships(self):
         for table_name in self.models.keys():
             if table_name.startswith('main_records_'):
@@ -139,34 +238,29 @@ class SQLEngine:
 
     def insert_record(self, record: Dict) -> Optional[int]:
         try:
-            root_data, nested_data = self.normalizer.normalize_record(record)
-
-            MainRecords = self.models.get('main_records')
-            if not MainRecords:
-                logger.error("MainRecords model not found")
+            return self._insert_record_once(record)
+        except IntegrityError as e:
+            self.session.rollback()
+            if not self._is_unique_violation(e):
+                logger.error(f"Error inserting record: {e}")
                 return None
 
-            main_record = MainRecords(**root_data)
-            self.session.add(main_record)
-            self.session.flush()
+            constraint_name = self._extract_constraint_name(e)
+            if not constraint_name:
+                logger.error(f"Unique violation but constraint name not found: {e}")
+                return None
 
-            # FIX: was main_record.id — PK is now record_id, not id
-            record_id = main_record.record_id
+            if not self._drop_unique_constraint_if_exists(constraint_name):
+                logger.error(f"Could not drop violated unique constraint: {constraint_name}")
+                return None
 
-            for table_name, nested_records in nested_data.items():
-                NestedModel = self.models.get(table_name)
-                if not NestedModel:
-                    logger.warning(f"Model for {table_name} not found, skipping")
-                    continue
-
-                for nested_record in nested_records:
-                    nested_record['main_records_id'] = record_id
-                    self.session.add(NestedModel(**nested_record))
-
-            self.session.commit()
-            logger.info(f"Inserted record with record_id {record_id}")
-            return record_id
-
+            # Retry once after schema repair
+            try:
+                return self._insert_record_once(record)
+            except Exception as retry_error:
+                self.session.rollback()
+                logger.error(f"Retry after dropping unique constraint failed: {retry_error}")
+                return None
         except Exception as e:
             logger.error(f"Error inserting record: {e}")
             self.session.rollback()
