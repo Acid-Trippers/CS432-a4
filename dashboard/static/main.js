@@ -6,6 +6,12 @@ let currentColumnSortMode = "frequency";
 let currentRowSortColumn = "";
 const PAGE_SIZE = 100;
 
+let fieldDetailsRows = [];
+let fieldDetailsSortKey = "field_name";
+let fieldDetailsSortDirection = "asc";
+let fieldDetailsFilter = "all";
+let fieldDetailsVisible = false;
+
 let _progressTimer = null;
 let _progressStart = null;
 // Simulated fill: creeps toward 90% while running, jumps to 100% on hideProgress
@@ -381,10 +387,10 @@ async function apiPost(url, body = null) {
   return response.json();
 }
 
-/**
- * Custom Reset Confirmation Dialog
- * Returns a promise that resolves to { confirmed: boolean, wipeSchema: boolean }
- */
+function getResetEndpointUrl(wipeSchema) {
+  return `/api/pipeline/reset?wipe_schema=${wipeSchema ? 'true' : 'false'}`;
+}
+
 function showResetConfirmation() {
   return new Promise((resolve) => {
     const dialog = document.getElementById("reset-dialog");
@@ -392,33 +398,30 @@ function showResetConfirmation() {
     const cancelBtn = document.getElementById("btn-reset-cancel");
     const wipeCheck = document.getElementById("wipe-schema-check");
 
-    if (!dialog || !confirmBtn || !cancelBtn) {
-      // Fallback to basic confirm if elements missing
-      const confirmed = window.confirm(
-        "Reset everything? This clears SQL and Mongo data.",
-      );
+    if (!dialog || typeof dialog.showModal !== "function" || !confirmBtn || !cancelBtn) {
+      const confirmed = window.confirm("Reset everything? This clears SQL and Mongo data.");
       resolve({ confirmed, wipeSchema: false });
       return;
     }
 
-    const onConfirm = () => {
-      cleanup();
-      resolve({ confirmed: true, wipeSchema: !!wipeCheck?.checked });
-    };
-
-    const onCancel = () => {
-      cleanup();
-      resolve({ confirmed: false, wipeSchema: false });
-    };
-
-    const cleanup = () => {
+    let settled = false;
+    const finalize = (result) => {
+      if (settled) return;
+      settled = true;
       confirmBtn.removeEventListener("click", onConfirm);
       cancelBtn.removeEventListener("click", onCancel);
-      dialog.close();
+      dialog.removeEventListener("close", onClose);
+      if (dialog.open) dialog.close();
+      resolve(result);
     };
+
+    const onConfirm = () => finalize({ confirmed: true, wipeSchema: !!wipeCheck?.checked });
+    const onCancel = () => finalize({ confirmed: false, wipeSchema: false });
+    const onClose = () => finalize({ confirmed: false, wipeSchema: false });
 
     confirmBtn.addEventListener("click", onConfirm);
     cancelBtn.addEventListener("click", onCancel);
+    dialog.addEventListener("close", onClose);
 
     if (wipeCheck) wipeCheck.checked = false;
     dialog.showModal();
@@ -564,17 +567,15 @@ function attachLandingHandlers() {
   if (resetBtn) {
     resetBtn.addEventListener("click", async () => {
       clearFeedback(feedback);
-      const confirmed = window.confirm(
-        "Reset everything? This clears SQL and Mongo data and wipes runtime files.",
-      );
+      const { confirmed, wipeSchema } = await showResetConfirmation();
       if (!confirmed) return;
 
       setButtonsDisabled(true);
       setFeedback(feedback, "Reset started...");
 
       try {
-        await apiPost("/api/pipeline/reset");
-        setFeedback(feedback, "Reset completed.");
+        await apiPost(getResetEndpointUrl(wipeSchema));
+        setFeedback(feedback, wipeSchema ? "Reset completed. Pipeline is fresh." : "Reset completed. Pipeline is schema ready.");
         await refreshLanding();
       } catch (error) {
         setFeedback(feedback, String(error.message || error), true);
@@ -666,160 +667,188 @@ function setDashboardControlsDisabled(disabled) {
     document.getElementById("btn-run-all-advanced-acid"),
     document.getElementById("fetch-count"),
     document.getElementById("btn-download-json"),
+    document.getElementById("btn-toggle-field-details"),
+    document.getElementById("field-status-filter"),
   ];
 
   controls.forEach((control) => {
     if (control) control.disabled = disabled;
   });
 
-  document.querySelectorAll(".run-acid-btn").forEach((button) => {
-    button.disabled = disabled;
-  });
-
-  document.querySelectorAll(".run-advanced-acid-btn").forEach((button) => {
+  document.querySelectorAll(".run-acid-btn, .run-advanced-acid-btn").forEach((button) => {
     button.disabled = disabled;
   });
 }
 
-async function refreshDashboardStatus() {
-  const feedback = document.getElementById("dashboard-feedback");
-  const stateLabel = document.getElementById("dashboard-state");
-  const status = await apiGet("/api/status");
-
-  if (stateLabel)
-    stateLabel.textContent = normalizeState(status.pipeline_state);
-
-  if (status.pipeline_state !== "initialized") {
-    setFeedback(
-      feedback,
-      "Pipeline is not initialized anymore. Redirecting to landing...",
-      true,
-    );
-    setTimeout(() => {
-      window.location.href = "/";
-    }, 1200);
-    return status;
-  }
-
-  if (status.pipeline_busy) {
-    setFeedback(
-      feedback,
-      "Pipeline is busy. Controls are temporarily locked.",
-      "warn",
-    );
-  } else {
-    clearFeedback(feedback);
-  }
-
-  setDashboardControlsDisabled(Boolean(status.pipeline_busy));
-  return status;
+function formatInteger(num) {
+  return new Intl.NumberFormat().format(num || 0);
 }
 
-function renderStatsTables(tables) {
-  const list = document.getElementById("system-table-list");
-  if (!list) return;
-
-  if (!Array.isArray(tables) || tables.length === 0) {
-    list.innerHTML = '<li class="meta-text">No logical entities reported.</li>';
-    return;
-  }
-
-  list.innerHTML = tables
-    .map(
-      (table) =>
-        `<li><span>${escapeHtml(table.name || "unknown")}</span><strong>${Number(
-          table.rows || 0,
-        )}</strong></li>`,
-    )
-    .join("");
+function toPercentValue(fraction) {
+  return Math.round(Number(fraction || 0) * 100);
 }
 
-function renderDashboardStats(stats) {
-  const sqlDot = document.getElementById("sql-status-dot");
-  const mongoDot = document.getElementById("mongo-status-dot");
-  const systemText = document.getElementById("system-status-text");
-  const systemMainTotal = document.getElementById("system-main-total");
-  const updatedAt = document.getElementById("stats-refreshed-at");
+function formatPercent(value) {
+  return `${Number(value || 0).toFixed(1)}%`;
+}
 
-  if (stats.status === "pipeline_busy") {
-    setDotState(sqlDot, false, true);
-    setDotState(mongoDot, false, true);
-    if (systemText) systemText.textContent = "Pipeline operation running...";
-    if (updatedAt)
-      updatedAt.textContent = "Waiting for operation to complete...";
-    return;
+function titleCase(str) {
+  return String(str || "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function formatRelativeTime(isoRaw) {
+  if (!isoRaw) return "Never";
+  try {
+    const d = new Date(isoRaw);
+    if (isNaN(d.getTime())) return "Invalid date";
+    const diff = Math.floor((new Date() - d) / 1000);
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+    return `${Math.floor(diff/3600)}h ago`;
+  } catch {
+    return "Unknown";
   }
+}
 
-  const sqlReachable = Boolean(stats?.sql?.reachable);
-  const mongoReachable = Boolean(stats?.mongo?.reachable);
-  const sqlTables = Array.isArray(stats?.sql?.tables) ? stats.sql.tables : [];
-  const mongoCollections = Array.isArray(stats?.mongo?.collections)
-    ? stats.mongo.collections
-    : [];
+function getSystemStatusPresentation(status) {
+  if (status.pipeline_state !== "initialized") return { message: "System initializing", variant: "warning" };
+  if (status.pipeline_busy) return { message: "Pipeline busy", variant: "warning" };
+  return { message: "Online and ready", variant: "neutral" };
+}
 
-  const sqlTotal = findCountByName(sqlTables, "name", "rows", "main_records");
-  const mongoTotal = findCountByName(
-    mongoCollections,
-    "name",
-    "documents",
-    "main_records",
-  );
-  const syncedTotal =
-    sqlReachable && mongoReachable
-      ? Math.min(sqlTotal, mongoTotal)
-      : Math.max(sqlTotal, mongoTotal);
+function normalizeFieldDetailsRows(rows) {
+  return Array.isArray(rows) ? rows : [];
+}
 
-  setDotState(sqlDot, sqlReachable);
-  setDotState(mongoDot, mongoReachable);
-
-  if (systemText) {
-    if (sqlReachable && mongoReachable) {
-      systemText.textContent =
-        "All backend systems fully reachable and operational.";
-    } else if (!sqlReachable && !mongoReachable) {
-      systemText.textContent =
-        "Critical: All backend storage endpoints unreachable.";
+function updateFieldSortButtonState() {
+  document.querySelectorAll(".field-sort-btn").forEach((btn) => {
+    const sortKey = btn.getAttribute("data-sort-key");
+    const baseText = titleCase(sortKey);
+    if (sortKey === fieldDetailsSortKey) {
+      btn.textContent = `${baseText} (${fieldDetailsSortDirection})`;
     } else {
-      systemText.textContent =
-        "Warning: Degraded performance, underlying partition unreachable.";
+      btn.textContent = baseText;
     }
-  }
-
-  if (systemMainTotal) {
-    systemMainTotal.textContent = String(syncedTotal);
-    systemMainTotal.title = `SQL: ${sqlTotal} | Mongo: ${mongoTotal}`;
-  }
-
-  const unifiedStatsSet = new Set();
-  sqlTables.forEach((t) => unifiedStatsSet.add(t.name));
-  mongoCollections.forEach((c) => unifiedStatsSet.add(c.name));
-  const unifiedStats = Array.from(unifiedStatsSet).map((name) => {
-    const r1 = findCountByName(sqlTables, "name", "rows", name);
-    const r2 = findCountByName(mongoCollections, "name", "documents", name);
-    return { name, rows: Math.max(r1, r2) };
   });
+}
 
-  renderStatsTables(unifiedStats);
+function getVisibleFieldDetailsRows() {
+  const filtered = fieldDetailsRows.filter(r => fieldDetailsFilter === "all" || r.status === fieldDetailsFilter);
+  return filtered.sort((a, b) => {
+    let va = a[fieldDetailsSortKey];
+    let vb = b[fieldDetailsSortKey];
+    if (typeof va === "string") va = va.toLowerCase();
+    if (typeof vb === "string") vb = vb.toLowerCase();
+    
+    if (va < vb) return fieldDetailsSortDirection === "asc" ? -1 : 1;
+    if (va > vb) return fieldDetailsSortDirection === "asc" ? 1 : -1;
+    return 0;
+  });
+}
 
-  if (updatedAt) {
-    updatedAt.textContent = `Last refreshed: ${new Date().toLocaleTimeString()}`;
+function renderFieldDetailsTable() {
+  const tbody = document.getElementById("field-details-body");
+  if (!tbody) return;
+  const rows = getVisibleFieldDetailsRows();
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" class="meta-text" style="text-align: center;">No fields match the current filter.</td></tr>`;
+    return;
   }
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td>${escapeHtml(r.field_name)}</td>
+      <td>${escapeHtml(r.status)}</td>
+      <td>${formatInteger(r.frequency)}</td>
+      <td>${formatPercent(r.density)}</td>
+    </tr>
+  `).join("");
+}
+
+function renderSchemaDimensions(stats) {
+  const defined = stats?.active_fields?.defined || 0;
+  const discovered = stats?.active_fields?.discovered || 0;
+  const pending = stats?.active_fields?.pending || 0;
+  const elDefined = document.getElementById("schema-defined-count");
+  if (elDefined) elDefined.textContent = `${formatInteger(defined)} defined`;
+  const elDiscovered = document.getElementById("schema-discovered-count");
+  if (elDiscovered) elDiscovered.textContent = `${formatInteger(discovered)} discovered`;
+  const elPending = document.getElementById("schema-pending-count");
+  if (elPending) elPending.textContent = `${formatInteger(pending)} pending`;
+  fieldDetailsRows = normalizeFieldDetailsRows(stats?.active_fields?.details);
+  updateFieldSortButtonState();
+  renderFieldDetailsTable();
+}
+
+function setKpiCardContent(id, value, subtitle, statusValue = null) {
+  const card = document.getElementById(id);
+  if (!card) return;
+  
+  let html = `<span class="kpi-label">${escapeHtml(card.getAttribute("data-label") || titleCase(id.replace("kpi-", "")))}</span>`;
+  html += `<span class="kpi-value">${escapeHtml(value)}</span>`;
+  html += `<span class="kpi-subtitle">${escapeHtml(subtitle)}</span>`;
+  
+  if (statusValue) {
+    html += `<span class="kpi-status-value">${escapeHtml(statusValue)}</span>`;
+  }
+  
+  card.innerHTML = html;
+}
+
+function renderDashboardStatsBundle(status, stats, pipelineStats) {
+  const sys = getSystemStatusPresentation(status);
+  
+  const elDot = document.getElementById("kpi-system-dot");
+  if (elDot) elDot.innerHTML = `<span class="status-dot ${sys.variant}"></span><span class="kpi-label">System State</span><span class="kpi-value">${sys.message}</span>`;
+  
+  setKpiCardContent("kpi-total-records", formatInteger(pipelineStats?.total_records), "Total stored records");
+  setKpiCardContent("kpi-active-fields", formatInteger(pipelineStats?.active_fields?.total), "Fields actively tracked");
+  setKpiCardContent("kpi-data-density", formatPercent(pipelineStats?.data_density), "Average field density");
+  
+  setKpiCardContent("kpi-system-status", sys.message, status.pipeline_busy ? "Busy" : "Ready");
+  
+  const fetchedCount = formatInteger(pipelineStats?.last_fetch?.count);
+  const fetchedWhen = formatRelativeTime(pipelineStats?.last_fetch?.timestamp);
+  setKpiCardContent("kpi-last-fetch", fetchedWhen, `Fetched ${fetchedCount} records`);
+  
+  const txTotal = formatInteger(pipelineStats?.transactions?.total);
+  const txRate = formatPercent(pipelineStats?.transactions?.success_rate);
+  setKpiCardContent("kpi-transactions", txTotal, "Total operations");
+  setKpiCardContent("kpi-transactions-breakdown", txRate, "Success rate");
+  
+  setKpiCardContent("kpi-active-fields-breakdown", formatInteger(pipelineStats?.active_fields?.defined), "Defined fields");
+  
+  renderSchemaDimensions(pipelineStats);
 }
 
 async function refreshDashboardStats() {
   const feedback = document.getElementById("dashboard-feedback");
   try {
-    const stats = await apiGet("/api/stats");
-    renderDashboardStats(stats);
-    if (stats.status !== "pipeline_busy") {
-      clearFeedback(feedback);
+    const [status, stats, pipelineStats] = await Promise.all([
+      apiGet("/api/status"),
+      apiGet("/api/stats"),
+      apiGet("/api/pipeline/stats"),
+    ]);
+
+    const stateLabel = document.getElementById("dashboard-state");
+    if (stateLabel) stateLabel.textContent = normalizeState(status.pipeline_state);
+
+    if (status.pipeline_state !== "initialized") {
+      setFeedback(feedback, "Pipeline is not initialized anymore. Redirecting to landing...", true);
+      setTimeout(() => window.location.href = "/", 1200);
+      return;
     }
+    
+    if (status.pipeline_busy) {
+      setDashboardControlsDisabled(true);
+      setFeedback(feedback, "Pipeline is busy. Controls are temporarily locked.", "warn");
+    } else {
+      clearFeedback(feedback);
+      setDashboardControlsDisabled(false);
+    }
+    
+    renderDashboardStatsBundle(status, stats, pipelineStats);
   } catch (error) {
-    setFeedback(
-      feedback,
-      `Stats refresh failed: ${String(error.message || error)}`,
-      true,
-    );
+    setFeedback(feedback, `Stats refresh failed: ${String(error.message || error)}`, true);
   }
 }
 
@@ -1395,12 +1424,11 @@ function attachDashboardHandlers() {
       try {
         await apiPost(`/api/pipeline/fetch?count=${count}`);
         setFeedback(feedback, `Fetch completed for ${count} records.`, false);
-        await refreshDashboardStatus();
         await refreshDashboardStats();
       } catch (error) {
         setFeedback(feedback, String(error.message || error), true);
       } finally {
-        await refreshDashboardStatus();
+        await refreshDashboardStats();
       }
     });
   }
@@ -1408,30 +1436,67 @@ function attachDashboardHandlers() {
   if (resetButton) {
     resetButton.addEventListener("click", async () => {
       clearFeedback(feedback);
-      const confirmed = window.confirm(
-        "Reset everything? This clears SQL and Mongo data and wipes runtime files.",
-      );
+      const { confirmed, wipeSchema } = await showResetConfirmation();
       if (!confirmed) return;
 
       setDashboardControlsDisabled(true);
       setFeedback(feedback, "Reset started...", false);
 
       try {
-        await apiPost("/api/pipeline/reset");
-        setFeedback(
-          feedback,
-          "Reset completed. Redirecting to landing...",
-          false,
-        );
-        setTimeout(() => {
-          window.location.href = "/";
-        }, 900);
+        await apiPost(getResetEndpointUrl(wipeSchema));
+        setFeedback(feedback, wipeSchema ? "Reset completed. Schema wiped. Redirecting..." : "Reset completed. Schema preserved. Redirecting...", false);
+        setTimeout(() => window.location.href = "/", 900);
       } catch (error) {
         setFeedback(feedback, String(error.message || error), true);
-        await refreshDashboardStatus();
+        await refreshDashboardStats();
       }
     });
   }
+
+  const schemaDetails = document.getElementById("schema-dimensions-details");
+  const schemaAction = document.getElementById("schema-summary-action");
+  if (schemaDetails && schemaAction) {
+    schemaDetails.addEventListener("toggle", () => {
+      schemaAction.textContent = schemaDetails.open ? "Collapse" : "Expand";
+    });
+  }
+
+  const toggleDetailsBtn = document.getElementById("btn-toggle-field-details");
+  const detailsPanel = document.getElementById("field-details-panel");
+  if (toggleDetailsBtn && detailsPanel) {
+    toggleDetailsBtn.addEventListener("click", () => {
+      fieldDetailsVisible = !fieldDetailsVisible;
+      if (fieldDetailsVisible) {
+        detailsPanel.classList.remove("hidden");
+        toggleDetailsBtn.textContent = "Hide Field Details";
+      } else {
+        detailsPanel.classList.add("hidden");
+        toggleDetailsBtn.textContent = "View Field Details ->";
+      }
+    });
+  }
+
+  const statusFilter = document.getElementById("field-status-filter");
+  if (statusFilter) {
+    statusFilter.addEventListener("change", () => {
+      fieldDetailsFilter = statusFilter.value;
+      renderFieldDetailsTable();
+    });
+  }
+
+  document.querySelectorAll(".field-sort-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = btn.getAttribute("data-sort-key");
+      if (fieldDetailsSortKey === key) {
+        fieldDetailsSortDirection = fieldDetailsSortDirection === "asc" ? "desc" : "asc";
+      } else {
+        fieldDetailsSortKey = key;
+        fieldDetailsSortDirection = "asc";
+      }
+      updateFieldSortButtonState();
+      renderFieldDetailsTable();
+    });
+  });
 
   if (operationSelect) {
     operationSelect.addEventListener("change", () => {
@@ -1533,6 +1598,9 @@ async function initializeDashboard() {
   const downloadButton = document.getElementById("btn-download-json");
   const columnSortSelect = document.getElementById("query-column-sort");
   const rowSortSelect = document.getElementById("query-row-sort");
+  const statusFilter = document.getElementById("field-status-filter");
+  const toggleDetailsBtn = document.getElementById("btn-toggle-field-details");
+  const detailsPanel = document.getElementById("field-details-panel");
 
   if (downloadButton) downloadButton.disabled = true;
   if (operationSelect) applyQueryTemplate(operationSelect.value);
@@ -1543,7 +1611,17 @@ async function initializeDashboard() {
     currentRowSortColumn = rowSortSelect.value || "";
   }
 
-  await refreshDashboardStatus();
+  fieldDetailsRows = [];
+  fieldDetailsSortKey = "field_name";
+  fieldDetailsSortDirection = "asc";
+  fieldDetailsFilter = "all";
+  fieldDetailsVisible = false;
+
+  if (statusFilter) statusFilter.value = "all";
+  if (toggleDetailsBtn) toggleDetailsBtn.textContent = "View Field Details ->";
+  if (detailsPanel) detailsPanel.classList.add("hidden");
+  updateFieldSortButtonState();
+
   await refreshDashboardStats();
 
   if (dashboardStatsTimer) {

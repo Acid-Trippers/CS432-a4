@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -88,34 +88,57 @@
         aria-labelledby="stats-title"
       >
         <div class="section-heading">
-          <h2 id="stats-title">Stats Panel</h2>
+          <h2 id="stats-title">Stats</h2>
           <span id="stats-refreshed-at" class="meta-text"
             >Awaiting refresh...</span
           >
         </div>
-        <div class="stats-grid">
-          <article
-            class="dashboard-card"
-            style="
-              grid-column: 1 / -1;
-              display: flex;
-              flex-direction: column;
-              gap: 0.8rem;
-            "
-          >
-            <h3>Logical Entity Store</h3>
-            <p class="status-inline">
-              <span id="system-status-text"
-                >Checking logical schema state...</span
-              >
-            </p>
-            <p class="metric-line">
-              Total synchronized records:
-              <strong id="system-main-total">-</strong>
-            </p>
-            <ul id="system-table-list" class="count-list"></ul>
-          </article>
+        <div class="stats-kpi-grid">
+          <article class="kpi-card" id="kpi-total-records"></article>
+          <article class="kpi-card" id="kpi-active-fields"></article>
+          <article class="kpi-card" id="kpi-active-fields-breakdown"></article>
+          <article class="kpi-card" id="kpi-data-density"></article>
+          <article class="kpi-card" id="kpi-system-dot"></article>
+          <article class="kpi-card" id="kpi-system-status"></article>
+          <article class="kpi-card" id="kpi-last-fetch"></article>
+          <article class="kpi-card" id="kpi-transactions"></article>
+          <article class="kpi-card" id="kpi-transactions-breakdown"></article>
         </div>
+        <details id="schema-dimensions-details" class="schema-dimensions-card">
+          <summary class="schema-dimensions-summary">
+            <span class="schema-summary-title">Schema Dimensions</span>
+            <span id="schema-summary-action" class="schema-summary-action">Expand</span>
+            <div class="schema-breakdown">
+              <span id="schema-defined-count" class="schema-breakdown-count">0 defined</span>
+              <span id="schema-discovered-count" class="schema-breakdown-count">0 discovered</span>
+              <span id="schema-pending-count" class="schema-breakdown-count">0 pending</span>
+            </div>
+          </summary>
+          <div class="schema-dimensions-content">
+            <div class="field-details-controls">
+              <button id="btn-toggle-field-details" type="button" class="btn btn-secondary">View Field Details -></button>
+              <select id="field-status-filter">
+                <option value="all">All Statuses</option>
+                <option value="defined">Defined</option>
+                <option value="discovered">Discovered</option>
+                <option value="pending">Pending</option>
+              </select>
+            </div>
+            <div id="field-details-panel" class="field-details-panel hidden">
+              <table id="field-details-table">
+                <thead>
+                  <tr>
+                    <th><button type="button" data-sort-key="field_name" class="field-sort-btn">Field Name</button></th>
+                    <th><button type="button" data-sort-key="status" class="field-sort-btn">Status</button></th>
+                    <th><button type="button" data-sort-key="frequency" class="field-sort-btn">Frequency</button></th>
+                    <th><button type="button" data-sort-key="density" class="field-sort-btn">Density</button></th>
+                  </tr>
+                </thead>
+                <tbody id="field-details-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </details>
       </section>
 
       <section
@@ -564,6 +587,25 @@
         </div>
       </section>
     </main>
+    <!-- Reset Dialog Modal -->
+    <dialog id="reset-dialog" class="custom-modal">
+      <div class="modal-content">
+        <h2>Reset System</h2>
+        <p>This action will clear SQL and Mongo data.</p>
+        <div class="modal-options">
+          <label class="checkbox-container">
+            <input type="checkbox" id="wipe-schema-check" />
+            <span class="checkmark"></span>
+            Also delete the existing initial_schema.json
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button id="btn-reset-cancel" type="button" class="btn btn-secondary">Cancel</button>
+          <button id="btn-reset-confirm" type="button" class="btn btn-danger">Confirm</button>
+        </div>
+      </div>
+    </dialog>
+
     <!-- Progress Bar Overlay -->
     <div
       id="progress-wrap"

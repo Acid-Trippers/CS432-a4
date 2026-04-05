@@ -212,10 +212,13 @@ def save_checkpoint(filepath, data, append=False):
         json.dump(data, f, indent=4)
 
 
-def set_checkpoint(step):
+def set_checkpoint(step, count=None):
     """Marks a step as completed."""
+    payload = {"last_step": step, "timestamp": time.time()}
+    if count is not None:
+        payload["count"] = int(count)
     with open(CHECKPOINT_FILE, 'w') as f:
-        json.dump({"last_step": step, "timestamp": time.time()}, f)
+        json.dump(payload, f)
 
 
 def get_last_checkpoint():
@@ -386,8 +389,8 @@ def initialise(count=1000):
         batch_record_ids,
         {"pipeline": "initialise", "requested_count": count},
     )
-    set_checkpoint("sql")
-    set_checkpoint("mongo")
+    set_checkpoint("sql", count=count)
+    set_checkpoint("mongo", count=count)
     print(f"[+] Storage pipeline completed in {time.time() - stage_start:.2f}s", flush=True)
     
     total_elapsed = time.time() - start_time
@@ -446,8 +449,8 @@ def fetch(count=100):
                     "remaining_before_batch": remaining,
                 },
             )
-            set_checkpoint("sql")
-            set_checkpoint("mongo")
+            set_checkpoint("sql", count=count)
+            set_checkpoint("mongo", count=count)
 
             remaining -= current_batch
             print(f"[+] Chunk processed. Total global records: {n_old + current_batch}")
