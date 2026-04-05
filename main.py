@@ -292,6 +292,14 @@ def clean_databases():
         from sqlalchemy import create_engine, text
         engine = create_engine(DATABASE_URL, connect_args={"connect_timeout": 2})
         with engine.connect() as conn:
+            # Force terminate other backends to ensure we can get an exclusive lock for the drop
+            conn.execute(text("""
+                SELECT pg_terminate_backend(pid) 
+                FROM pg_stat_activity 
+                WHERE datname = current_database() AND pid <> pg_backend_pid();
+            """))
+            conn.commit()
+            
             conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
             conn.commit()
         print("[+] SQL database tables dropped.")

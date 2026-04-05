@@ -40,6 +40,27 @@
 
             <p id="landing-message" class="feedback hidden" role="status"></p>
         </section>
+
+        <!-- Custom Reset Dialog -->
+        <dialog id="reset-dialog" class="custom-modal">
+            <div class="modal-content">
+                <h2>Reset Environment?</h2>
+                <p>This will drop all database tables and clear runtime records. This action cannot be undone.</p>
+                
+                <div class="modal-options">
+                    <label class="checkbox-container">
+                        <input type="checkbox" id="wipe-schema-check">
+                        <span class="checkmark"></span>
+                        Also delete the initial schema definition
+                    </label>
+                </div>
+
+                <div class="modal-actions">
+                    <button id="btn-reset-cancel" class="btn btn-secondary">Cancel</button>
+                    <button id="btn-reset-confirm" class="btn btn-danger">Reset Everything</button>
+                </div>
+            </div>
+        </dialog>
     </main>
     <script src="/static/main.js"></script>
 </body>

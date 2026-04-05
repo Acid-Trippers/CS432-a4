@@ -131,6 +131,48 @@ async function apiPost(url, body = null) {
 	return response.json();
 }
 
+/**
+ * Custom Reset Confirmation Dialog
+ * Returns a promise that resolves to { confirmed: boolean, wipeSchema: boolean }
+ */
+function showResetConfirmation() {
+	return new Promise((resolve) => {
+		const dialog = document.getElementById("reset-dialog");
+		const confirmBtn = document.getElementById("btn-reset-confirm");
+		const cancelBtn = document.getElementById("btn-reset-cancel");
+		const wipeCheck = document.getElementById("wipe-schema-check");
+
+		if (!dialog || !confirmBtn || !cancelBtn) {
+			// Fallback to basic confirm if elements missing
+			const confirmed = window.confirm("Reset everything? This clears SQL and Mongo data.");
+			resolve({ confirmed, wipeSchema: false });
+			return;
+		}
+
+		const onConfirm = () => {
+			cleanup();
+			resolve({ confirmed: true, wipeSchema: !!wipeCheck?.checked });
+		};
+
+		const onCancel = () => {
+			cleanup();
+			resolve({ confirmed: false, wipeSchema: false });
+		};
+
+		const cleanup = () => {
+			confirmBtn.removeEventListener("click", onConfirm);
+			cancelBtn.removeEventListener("click", onCancel);
+			dialog.close();
+		};
+
+		confirmBtn.addEventListener("click", onConfirm);
+		cancelBtn.addEventListener("click", onCancel);
+
+		if (wipeCheck) wipeCheck.checked = false;
+		dialog.showModal();
+	});
+}
+
 async function fetchLandingState() {
 	const [status, stats] = await Promise.all([apiGet("/api/status"), apiGet("/api/stats")]);
 	return { status, stats };
@@ -181,11 +223,17 @@ function applyLandingState(status, stats) {
 
 	if (status.pipeline_state === "initialized") {
 		if (dashboardBtn) dashboardBtn.classList.remove("hidden");
-	} else if (status.pipeline_state === "schema_ready") {
-		if (initialiseBtn) initialiseBtn.classList.remove("hidden");
-		if (initCountRow) initCountRow.classList.remove("hidden");
 	} else {
-		if (setupBtn) setupBtn.classList.remove("hidden");
+		// Always show setup button unless the pipeline is fully initialized with data
+		if (setupBtn) {
+			setupBtn.classList.remove("hidden");
+			setupBtn.textContent = (status.pipeline_state === "schema_ready") ? "Refine Schema" : "Set Up Schema";
+		}
+
+		if (status.pipeline_state === "schema_ready") {
+			if (initialiseBtn) initialiseBtn.classList.remove("hidden");
+			if (initCountRow) initCountRow.classList.remove("hidden");
+		}
 	}
 
 	setButtonsDisabled(pipelineBusy);
@@ -260,16 +308,14 @@ function attachLandingHandlers() {
 	if (resetBtn) {
 		resetBtn.addEventListener("click", async () => {
 			clearFeedback(feedback);
-			const confirmed = window.confirm(
-				"Reset everything? This clears SQL and Mongo data and wipes runtime files."
-			);
+			
+			const { confirmed, wipeSchema } = await showResetConfirmation();
 			if (!confirmed) return;
 
 			setButtonsDisabled(true);
-			setFeedback(feedback, "Reset started...");
-
+			setFeedback(feedback, "Reset started...", false);
 			try {
-				await apiPost("/api/pipeline/reset");
+				await apiPost(`/api/pipeline/reset?wipe_schema=${wipeSchema}`);
 				setFeedback(feedback, "Reset completed.");
 				await refreshLanding();
 			} catch (error) {
@@ -816,22 +862,28 @@ function attachDashboardHandlers() {
 	if (resetButton) {
 		resetButton.addEventListener("click", async () => {
 			clearFeedback(feedback);
-			const confirmed = window.confirm(
-				"Reset everything? This clears SQL and Mongo data and wipes runtime files."
-			);
+			
+			const { confirmed, wipeSchema } = await showResetConfirmation();
 			if (!confirmed) return;
 
+			// Stop polling stats while resetting to minimize connection interference
+			if (dashboardStatsTimer) {
+				clearInterval(dashboardStatsTimer);
+				dashboardStatsTimer = null;
+			}
+
 			setDashboardControlsDisabled(true);
-			setFeedback(feedback, "Reset started...", false);
+			setFeedback(feedback, "Reset started. This may take a few seconds...", false);
 
 			try {
-				await apiPost("/api/pipeline/reset");
+				await apiPost(`/api/pipeline/reset?wipe_schema=${wipeSchema}`);
 				setFeedback(feedback, "Reset completed. Redirecting to landing...", false);
 				setTimeout(() => {
 					window.location.href = "/";
-				}, 900);
+				}, 1000);
 			} catch (error) {
 				setFeedback(feedback, String(error.message || error), true);
+				// Resume status tracking if it failed
 				await refreshDashboardStatus();
 			}
 		});

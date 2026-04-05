@@ -149,7 +149,7 @@ async def run_fetch(request: Request, count: int = Query(default=100, ge=0)):
 
 
 @router.post("/api/pipeline/reset")
-async def reset_everything(request: Request):
+async def reset_everything(request: Request, wipe_schema: bool = Query(default=False)):
     if request.app.state.pipeline_busy:
         raise HTTPException(status_code=409, detail="pipeline is already running")
 
@@ -165,8 +165,8 @@ async def reset_everything(request: Request):
         await loop.run_in_executor(None, main_module.clean_databases)
         print("[RESET] clean_databases finished.", flush=True)
 
-        removed_paths = _wipe_runtime_data_files(preserve_schema=True)
-        print("[RESET] Wiped runtime data files.", flush=True)
+        removed_paths = _wipe_runtime_data_files(preserve_schema=not wipe_schema)
+        print(f"[RESET] Wiped {len(removed_paths)} runtime data files (wipe_schema={wipe_schema}).", flush=True)
         
         _reset_shared_sql_engine(request)
         print("[RESET] Re-initialized shared SQL engine.", flush=True)
