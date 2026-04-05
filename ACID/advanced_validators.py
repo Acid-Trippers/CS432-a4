@@ -13,6 +13,7 @@ from pymongo import MongoClient
 from src.config import MONGO_URI, MONGO_DB_NAME, COUNTER_FILE
 import time
 from sqlalchemy import text, inspect as sql_inspect
+from sqlalchemy.exc import OperationalError
 import threading
 import asyncio
 
@@ -30,7 +31,21 @@ def _get_main_model():
     return sql_engine.models.get("main_records")
 
 
+def _reconnect_sql_engine():
+    """Rebuild the SQL engine when existing sessions become invalid."""
+    global sql_engine
+    try:
+        sql_engine.close()
+    except Exception:
+        pass
+
+    sql_engine = SQLEngine()
+    sql_engine.initialize()
+
+
 def _new_sql_session():
+    if not sql_engine.models:
+        _reconnect_sql_engine()
     return sql_engine.schema_builder.get_session()
 
 
@@ -48,37 +63,80 @@ def _set_counter_value(value: int):
 
 
 def _delete_sql_by_record_id(record_id: int):
-    model = _get_main_model()
-    if not model:
-        return
-    session = _new_sql_session()
+    for attempt in range(2):
+        model = _get_main_model()
+        if not model:
+            _reconnect_sql_engine()
+            model = _get_main_model()
+            if not model:
+                return
+
+        session = _new_sql_session()
+        try:
+            session.query(model).filter(model.record_id == record_id).delete()
+            session.commit()
+            return
+        except OperationalError:
+            session.rollback()
+            if attempt == 0:
+                _reconnect_sql_engine()
+                continue
+            raise
+        finally:
+            session.close()
+
+
+def _delete_mongo_by_record_id(record_id: int):
     try:
-        session.query(model).filter(model.record_id == record_id).delete()
-        session.commit()
-    finally:
-        session.close()
+        mongo_db["main_records"].delete_many({"$or": [{"_id": record_id}, {"record_id": record_id}]})
+    except Exception:
+        pass
 
 
 def _sql_count() -> int:
-    model = _get_main_model()
-    if not model:
-        return -1
-    session = _new_sql_session()
-    try:
-        return session.query(model).count()
-    finally:
-        session.close()
+    for attempt in range(2):
+        model = _get_main_model()
+        if not model:
+            _reconnect_sql_engine()
+            model = _get_main_model()
+            if not model:
+                return -1
+
+        session = _new_sql_session()
+        try:
+            return session.query(model).count()
+        except OperationalError:
+            session.rollback()
+            if attempt == 0:
+                _reconnect_sql_engine()
+                continue
+            raise
+        finally:
+            session.close()
+    return -1
 
 
 def _sql_record_exists(record_id: int) -> bool:
-    model = _get_main_model()
-    if not model:
-        return False
-    session = _new_sql_session()
-    try:
-        return session.query(model).filter(model.record_id == record_id).count() > 0
-    finally:
-        session.close()
+    for attempt in range(2):
+        model = _get_main_model()
+        if not model:
+            _reconnect_sql_engine()
+            model = _get_main_model()
+            if not model:
+                return False
+
+        session = _new_sql_session()
+        try:
+            return session.query(model).filter(model.record_id == record_id).count() > 0
+        except OperationalError:
+            session.rollback()
+            if attempt == 0:
+                _reconnect_sql_engine()
+                continue
+            raise
+        finally:
+            session.close()
+    return False
 
 
 def _build_create_query(tag: str):
@@ -144,9 +202,11 @@ def cross_db_atomicity_test():
     original_counter = _get_counter_value()
     record_id = original_counter
     collection = mongo_db["main_records"]
-    inserted_seed = False
 
     try:
+        _delete_sql_by_record_id(record_id)
+        _delete_mongo_by_record_id(record_id)
+
         # Success path: both participants should commit
         success_result = _run_create_transaction(_build_create_query("cross_db_success"))
         success_id = record_id
@@ -162,12 +222,9 @@ def cross_db_atomicity_test():
         fail_record_id = success_id + 1
         _set_counter_value(fail_record_id)
 
-        existing_seed = collection.find_one({"_id": fail_record_id})
-        if not existing_seed:
-            collection.insert_one({"_id": fail_record_id, "seed": "acid_crossdb"})
-            inserted_seed = True
-
         _delete_sql_by_record_id(fail_record_id)
+        _delete_mongo_by_record_id(fail_record_id)
+        collection.insert_one({"_id": fail_record_id, "seed": "acid_crossdb"})
 
         before_sql = _sql_count()
         before_mongo = collection.count_documents({})
@@ -199,10 +256,9 @@ def cross_db_atomicity_test():
         return {"test": "cross_db_atomicity", "passed": False, "error": str(e)[:100]}
     finally:
         _delete_sql_by_record_id(record_id)
-        collection.delete_one({"_id": record_id})
+        _delete_mongo_by_record_id(record_id)
         _delete_sql_by_record_id(record_id + 1)
-        if inserted_seed:
-            collection.delete_one({"_id": record_id + 1})
+        _delete_mongo_by_record_id(record_id + 1)
         _set_counter_value(original_counter)
 
 

@@ -15,36 +15,55 @@ from src.phase_6.transaction_coordinator import TransactionCoordinator, Transact
 from src.phase_6.conflict_detector import get_conflict_detector, ConflictException
 from pymongo import MongoClient, errors
 
-# Initialize SQL Engine gracefully (non-blocking if PostgreSQL unavailable)
-sql_engine = SQLEngine()
+sql_engine = None
 sql_available = False
-try:
-    sql_engine.initialize()
-    sql_available = True
-    print("[SQL] Engine initialized successfully")
-except Exception as e:
-    print(f"[WARNING] SQL Engine initialization failed: {str(e)[:100]}...")
-    print("[WARNING] Continuing with MongoDB and Unknown data sources only")
-
-# Initialize MongoDB connection with authentication
+mongo_client = None
 mongo_db = None
 mongo_available = False
-try:
-    print(f"[MONGO] Connecting to {MONGO_URI.replace(MONGO_URI.split('@')[0].split('//')[1], '***')}...")
-    mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-    mongo_client.admin.command('ping')
-    mongo_db = mongo_client[MONGO_DB_NAME]
-    mongo_available = True
-    print(f"[MONGO] Connected to database '{MONGO_DB_NAME}' successfully")
-except errors.ServerSelectionTimeoutError:
-    print(f"[WARNING] MongoDB connection timeout - server not reachable at {MONGO_URI}")
-    print("[WARNING] MongoDB features will be unavailable")
-except errors.OperationFailure as e:
-    print(f"[WARNING] MongoDB authentication failed: {e}")
-    print("[WARNING] MongoDB features will be unavailable")
-except Exception as e:
-    print(f"[WARNING] MongoDB initialization failed: {str(e)[:150]}")
-    print("[WARNING] MongoDB features will be unavailable")
+
+
+def refresh_connections():
+    """Rebuild the module-level SQL and Mongo connections."""
+    global sql_engine, sql_available, mongo_client, mongo_db, mongo_available
+
+    sql_engine = SQLEngine()
+    sql_available = False
+    try:
+        sql_engine.initialize()
+        sql_available = True
+        print("[SQL] Engine initialized successfully")
+    except Exception as e:
+        print(f"[WARNING] SQL Engine initialization failed: {str(e)[:100]}...")
+        print("[WARNING] Continuing with MongoDB and Unknown data sources only")
+
+    if mongo_client is not None:
+        try:
+            mongo_client.close()
+        except Exception:
+            pass
+
+    mongo_client = None
+    mongo_db = None
+    mongo_available = False
+    try:
+        print(f"[MONGO] Connecting to {MONGO_URI.replace(MONGO_URI.split('@')[0].split('//')[1], '***')}...")
+        mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        mongo_client.admin.command('ping')
+        mongo_db = mongo_client[MONGO_DB_NAME]
+        mongo_available = True
+        print(f"[MONGO] Connected to database '{MONGO_DB_NAME}' successfully")
+    except errors.ServerSelectionTimeoutError:
+        print(f"[WARNING] MongoDB connection timeout - server not reachable at {MONGO_URI}")
+        print("[WARNING] MongoDB features will be unavailable")
+    except errors.OperationFailure as e:
+        print(f"[WARNING] MongoDB authentication failed: {e}")
+        print("[WARNING] MongoDB features will be unavailable")
+    except Exception as e:
+        print(f"[WARNING] MongoDB initialization failed: {str(e)[:150]}")
+        print("[WARNING] MongoDB features will be unavailable")
+
+
+refresh_connections()
 
 tx_coordinator = TransactionCoordinator(TRANSACTION_LOG_FILE)
 

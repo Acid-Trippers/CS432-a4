@@ -474,6 +474,10 @@ def query():
         return
 
     print("\n[*] Starting Query Operations...")
+
+    from src.phase_6.CRUD_operations import refresh_connections
+
+    refresh_connections()
     
     # 1. Provide UI to get a valid query and save it to query.json
     crud_json_reader.main()

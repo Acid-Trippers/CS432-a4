@@ -56,6 +56,9 @@ class QueryPayload(BaseModel):
 @router.post("/api/query")
 async def execute_query(body: QueryPayload):
     try:
+        from src.phase_6.CRUD_operations import refresh_connections
+
+        refresh_connections()
         from src.phase_6.CRUD_runner import query_runner
 
         result = query_runner(query_dict=body.model_dump())

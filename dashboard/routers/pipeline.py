@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from src.config import DATA_DIR, INITIAL_SCHEMA_FILE
 from src.phase_5.sql_engine import SQLEngine
+from src.phase_6.conflict_detector import get_conflict_detector
 
 
 router = APIRouter()
@@ -45,6 +46,15 @@ def _reinitialize_shared_sql_engine(request: Request) -> None:
 def _reset_shared_sql_engine(request: Request) -> None:
     request.app.state.sql_engine = SQLEngine()
     request.app.state.sql_initialized = False
+
+
+def _refresh_crud_connections() -> None:
+    try:
+        from src.phase_6.CRUD_operations import refresh_connections
+
+        refresh_connections()
+    except Exception:
+        pass
 
 
 def _wipe_runtime_data_files(preserve_schema: bool = True) -> list[str]:
@@ -107,6 +117,7 @@ async def run_initialise(request: Request, count: int = Query(default=1000, ge=0
         await loop.run_in_executor(None, lambda: main_module.initialise(count))
 
         _reinitialize_shared_sql_engine(request)
+        _refresh_crud_connections()
         request.app.state.pipeline_state = "initialized"
 
         return {
@@ -135,6 +146,7 @@ async def run_fetch(request: Request, count: int = Query(default=100, ge=0)):
         await loop.run_in_executor(None, lambda: main_module.fetch(count))
 
         _reinitialize_shared_sql_engine(request)
+        _refresh_crud_connections()
         request.app.state.pipeline_state = "initialized"
 
         return {
@@ -167,8 +179,11 @@ async def reset_everything(request: Request, wipe_schema: bool = Query(default=F
 
         removed_paths = _wipe_runtime_data_files(preserve_schema=not wipe_schema)
         print(f"[RESET] Wiped {len(removed_paths)} runtime data files (wipe_schema={wipe_schema}).", flush=True)
+
+        get_conflict_detector().clear()
         
         _reset_shared_sql_engine(request)
+        _refresh_crud_connections()
         print("[RESET] Re-initialized shared SQL engine.", flush=True)
 
         request.app.state.pipeline_state = (
