@@ -710,6 +710,23 @@ function formatRelativeTime(isoRaw) {
   }
 }
 
+function formatClockTime(dateObj) {
+  return dateObj.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function setStatsRefreshedAt(variant = "success") {
+  const el = document.getElementById("stats-refreshed-at");
+  if (!el) return;
+
+  const now = new Date();
+  const label = variant === "error" ? "Refresh failed" : "Last refreshed";
+  el.textContent = `${label}: ${formatClockTime(now)}`;
+}
+
 function getSystemStatusPresentation(status) {
   if (status.pipeline_state !== "initialized") return { message: "System initializing", variant: "warning" };
   if (status.pipeline_busy) return { message: "Pipeline busy", variant: "busy" };
@@ -832,8 +849,10 @@ async function refreshDashboardStats() {
     }
     
     renderDashboardStatsBundle(status, stats, pipelineStats);
+    setStatsRefreshedAt("success");
   } catch (error) {
     setFeedback(feedback, `Stats refresh failed: ${String(error.message || error)}`, true);
+    setStatsRefreshedAt("error");
   }
 }
 
