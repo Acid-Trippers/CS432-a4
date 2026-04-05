@@ -201,75 +201,83 @@ def read_operation(parsed_query, db_analysis):
     print(f"{'─'*60}")
     
     matching_record_ids = {}
-    
-    if "SQL" in databases_needed and sql_available:
-        try:
-            Model = sql_engine.models.get(entity)
-            if Model:
-                query = sql_engine.session.query(Model.record_id)
-                sql_filters = {k: v for k, v in filters.items() if field_locations.get(k) == "SQL"}
-                if sql_filters:
-                    for field_name, field_value in sql_filters.items():
-                        query = query.filter(getattr(Model, field_name) == field_value)
-                        print(f"[SQL Filter] {field_name} = {field_value}")
-                record_ids = [rid[0] for rid in query.all()]
-                matching_record_ids["SQL"] = record_ids
-                print(f"[SQL] Found {len(record_ids)} matching record_ids: {record_ids[:5]}{'...' if len(record_ids) > 5 else ''}")
-        except Exception as e:
-            print(f"[SQL] Error in Phase 1: {e}")
+    no_filters = not filters
+
+    if no_filters:
+        print("[PHASE 1] No filters provided — skipping ID lookup, will fetch all records directly.")
+    else:
+        if "SQL" in databases_needed and sql_available:
+            try:
+                Model = sql_engine.models.get(entity)
+                if Model:
+                    query = sql_engine.session.query(Model.record_id)
+                    sql_filters = {k: v for k, v in filters.items() if field_locations.get(k) == "SQL"}
+                    if sql_filters:
+                        for field_name, field_value in sql_filters.items():
+                            query = query.filter(getattr(Model, field_name) == field_value)
+                            print(f"[SQL Filter] {field_name} = {field_value}")
+                    record_ids = [rid[0] for rid in query.all()]
+                    matching_record_ids["SQL"] = record_ids
+                    print(f"[SQL] Found {len(record_ids)} matching record_ids: {record_ids[:5]}{'...' if len(record_ids) > 5 else ''}")
+            except Exception as e:
+                print(f"[SQL] Error in Phase 1: {e}")
+                matching_record_ids["SQL"] = []
+        elif "SQL" in databases_needed:
+            print(f"[SQL] Skipped (SQL Engine not available)")
             matching_record_ids["SQL"] = []
-    elif "SQL" in databases_needed:
-        print(f"[SQL] Skipped (SQL Engine not available)")
-        matching_record_ids["SQL"] = []
-    
-    if "MONGO" in databases_needed and mongo_available:
-        try:
-            collection = mongo_db[entity]
-            mongo_filters = {k: v for k, v in filters.items() if field_locations.get(k) == "MONGO"}
-            docs = list(collection.find(mongo_filters, {"_id": 1}))
-            record_ids = [doc.get("_id") for doc in docs if "_id" in doc]
-            matching_record_ids["MONGO"] = record_ids
-            print(f"[MONGO] Found {len(record_ids)} matching record_ids: {record_ids[:5]}{'...' if len(record_ids) > 5 else ''}")
-        except Exception as e:
-            print(f"[MONGO] Error in Phase 1: {e}")
+
+        if "MONGO" in databases_needed and mongo_available:
+            try:
+                collection = mongo_db[entity]
+                mongo_filters = {k: v for k, v in filters.items() if field_locations.get(k) == "MONGO"}
+                docs = list(collection.find(mongo_filters, {"_id": 1}))
+                record_ids = [doc.get("_id") for doc in docs if "_id" in doc]
+                matching_record_ids["MONGO"] = record_ids
+                print(f"[MONGO] Found {len(record_ids)} matching record_ids: {record_ids[:5]}{'...' if len(record_ids) > 5 else ''}")
+            except Exception as e:
+                print(f"[MONGO] Error in Phase 1: {e}")
+                matching_record_ids["MONGO"] = []
+        elif "MONGO" in databases_needed:
+            print(f"[MONGO] Skipped (MongoDB not available)")
             matching_record_ids["MONGO"] = []
-    elif "MONGO" in databases_needed:
-        print(f"[MONGO] Skipped (MongoDB not available)")
-        matching_record_ids["MONGO"] = []
-    
-    if "Unknown" in databases_needed:
-        try:
-            unknown_file = os.path.join(DATA_DIR, "unknown_data.json")
-            if os.path.exists(unknown_file):
-                with open(unknown_file, 'r') as f:
-                    data = json.load(f)
-                unknown_filters = {k: v for k, v in filters.items() if field_locations.get(k) == "Unknown"}
-                all_records = data if isinstance(data, list) else [data]
-                matching = [r for r in all_records if all(r.get(k) == v for k, v in unknown_filters.items())] if unknown_filters else all_records
-                record_ids = [r.get("record_id") for r in matching if "record_id" in r]
-                matching_record_ids["Unknown"] = record_ids
-                print(f"[Unknown] Found {len(record_ids)} matching record_ids: {record_ids[:5]}{'...' if len(record_ids) > 5 else ''}")
-        except Exception as e:
-            print(f"[Unknown] Error in Phase 1: {e}")
-            matching_record_ids["Unknown"] = []
-    
+
+        if "Unknown" in databases_needed:
+            try:
+                unknown_file = os.path.join(DATA_DIR, "unknown_data.json")
+                if os.path.exists(unknown_file):
+                    with open(unknown_file, 'r') as f:
+                        data = json.load(f)
+                    unknown_filters = {k: v for k, v in filters.items() if field_locations.get(k) == "Unknown"}
+                    all_records = data if isinstance(data, list) else [data]
+                    matching = [r for r in all_records if all(r.get(k) == v for k, v in unknown_filters.items())] if unknown_filters else all_records
+                    record_ids = [r.get("record_id") for r in matching if "record_id" in r]
+                    matching_record_ids["Unknown"] = record_ids
+                    print(f"[Unknown] Found {len(record_ids)} matching record_ids: {record_ids[:5]}{'...' if len(record_ids) > 5 else ''}")
+            except Exception as e:
+                print(f"[Unknown] Error in Phase 1: {e}")
+                matching_record_ids["Unknown"] = []
+
     # ============================================================================
-    # PHASE 2: FETCH full records using record_ids
+    # PHASE 2: FETCH full records (all records if no filters, else by matched IDs)
     # ============================================================================
     print(f"\n{'─'*60}")
-    print("[PHASE 2] Fetching full records by record_id...")
+    print("[PHASE 2] Fetching full records...")
     print(f"{'─'*60}")
-    
+
     results = {}
-    
-    if "SQL" in databases_needed and sql_available and matching_record_ids.get("SQL"):
+
+    # SQL
+    sql_needed = "SQL" in databases_needed and sql_available
+    sql_ids = matching_record_ids.get("SQL")
+    if sql_needed and (no_filters or sql_ids):
         try:
             Model = sql_engine.models.get(entity)
             if Model:
-                records = sql_engine.session.query(Model).filter(
-                    Model.record_id.in_(matching_record_ids["SQL"])
-                ).all()
                 from sqlalchemy import inspect as sql_inspect
+                query = sql_engine.session.query(Model)
+                if not no_filters and sql_ids:
+                    query = query.filter(Model.record_id.in_(sql_ids))
+                records = query.all()
                 results["SQL"] = [
                     {col.name: getattr(record, col.name) for col in sql_inspect(Model).columns}
                     for record in records
@@ -280,11 +288,15 @@ def read_operation(parsed_query, db_analysis):
             results["SQL"] = []
     else:
         results["SQL"] = []
-    
-    if "MONGO" in databases_needed and matching_record_ids.get("MONGO") and mongo_available:
+
+    # MONGO
+    mongo_needed = "MONGO" in databases_needed and mongo_available
+    mongo_ids = matching_record_ids.get("MONGO")
+    if mongo_needed and (no_filters or mongo_ids):
         try:
             collection = mongo_db[entity]
-            records = list(collection.find({"_id": {"$in": matching_record_ids["MONGO"]}}))
+            query_filter = {} if no_filters else {"_id": {"$in": mongo_ids}}
+            records = list(collection.find(query_filter))
             results["MONGO"] = [
                 {"record_id": r["_id"], **{k: v for k, v in r.items() if k != "_id"}}
                 for r in records
@@ -295,15 +307,17 @@ def read_operation(parsed_query, db_analysis):
             results["MONGO"] = []
     else:
         results["MONGO"] = []
-    
-    if "Unknown" in databases_needed and matching_record_ids.get("Unknown"):
+
+    # Unknown
+    unknown_ids = matching_record_ids.get("Unknown")
+    if "Unknown" in databases_needed and (no_filters or unknown_ids):
         try:
             unknown_file = os.path.join(DATA_DIR, "unknown_data.json")
             if os.path.exists(unknown_file):
                 with open(unknown_file, 'r') as f:
                     data = json.load(f)
                 all_records = data if isinstance(data, list) else [data]
-                results["Unknown"] = [r for r in all_records if r.get("record_id") in matching_record_ids["Unknown"]]
+                results["Unknown"] = all_records if no_filters else [r for r in all_records if r.get("record_id") in unknown_ids]
                 print(f"[Unknown] Fetched {len(results['Unknown'])} full records")
         except Exception as e:
             print(f"[Unknown] Error in Phase 2: {e}")
