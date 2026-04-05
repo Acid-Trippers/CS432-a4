@@ -139,6 +139,14 @@ def runMongoEngine():
         count = dbInstance[col].count_documents({})
         print(f"  {col:<35} {count:>10} documents", flush=True)
 
+    if fail_count == 0:
+        # Batch payload is fully consumed; clear so next fetch processes only new records.
+        try:
+            with open(MONGO_DATA_FILE, 'w', encoding='utf-8') as fileHandle:
+                json.dump([], fileHandle)
+        except Exception as e:
+            print(f"[!] Warning: could not clear {MONGO_DATA_FILE}: {e}", flush=True)
+
     print("=" * 80, flush=True)
 
     clientInstance.close()

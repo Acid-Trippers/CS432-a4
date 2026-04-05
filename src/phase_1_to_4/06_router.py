@@ -67,16 +67,20 @@ def route_data() -> None:
 
     routes = _build_field_routes(metadata.get('fields', []))
 
-    # Helper to load existing data for appending
-    def _load_existing(path):
-        if os.path.exists(path):
-            try: return _read_json(path)
-            except: return []
-        return []
+    # SQL/Mongo payload files are batch-scoped: each routing pass should only
+    # include newly cleaned records. This prevents reprocessing historical data
+    # during fetch and keeps progress/output aligned with current batch size.
+    sql_data = []
+    mongo_data = []
 
-    sql_data = _load_existing(SQL_OUTPUT_FILE)
-    mongo_data = _load_existing(MONGO_OUTPUT_FILE)
-    buffer_data = _load_existing(BUFFER_FILE)
+    # Buffer remains cumulative as a long-lived quarantine log.
+    if os.path.exists(BUFFER_FILE):
+        try:
+            buffer_data = _read_json(BUFFER_FILE)
+        except Exception:
+            buffer_data = []
+    else:
+        buffer_data = []
 
     for record in cleaned_data:
         sql_rec, mongo_rec, buf_rec = {}, {}, {}
@@ -107,11 +111,11 @@ def route_data() -> None:
     # FINAL FLUSH: Clear the cleaned_data.json
     _write_json(CLEANED_DATA_FILE, [])
     stats = {
-        "sql": len(sql_data), 
-        "mongo": len(mongo_data), 
+        "sql": len(sql_data),
+        "mongo": len(mongo_data),
         "buffer": len(buffer_data)
     }
-    print(f"[*] Routed: SQL({stats['sql']}) | Mongo({stats['mongo']}) | Buffer({stats['buffer']})")
+    print(f"[*] Routed (batch): SQL({stats['sql']}) | Mongo({stats['mongo']}) | Buffer(total={stats['buffer']})")
     
     return stats
 
