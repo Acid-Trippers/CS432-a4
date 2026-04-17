@@ -75,3 +75,128 @@ cs432-assignment3/
 ## Notes
 
 The dashboard is served by `dashboard/run.py`, which launches Uvicorn on port `8080` and loads the FastAPI app defined in `dashboard/app.py`.
+
+## READ Query Filter Syntax (Advanced)
+
+The `READ` operation now supports both simple equality filters and advanced typed filters with logical grouping.
+
+### Base Request Shape
+
+```json
+{
+	"operation": "READ",
+	"entity": "main_records",
+	"filters": {},
+	"columns": ["username", "city", "subscription"]
+}
+```
+
+### 1. Simple Equality (Backward Compatible)
+
+```json
+{
+	"operation": "READ",
+	"entity": "main_records",
+	"filters": {
+		"city": "Seattle",
+		"subscription": "premium"
+	},
+	"columns": ["record_id", "username", "city", "subscription"]
+}
+```
+
+This means `city == "Seattle" AND subscription == "premium"`.
+
+### 2. Numeric Comparisons (Integer/Float fields)
+
+Use operator objects:
+
+```json
+{
+	"filters": {
+		"age": {"$gte": 18, "$lte": 65},
+		"battery": {"$gt": 30}
+	}
+}
+```
+
+Or shorthand strings (numeric fields only):
+
+```json
+{
+	"filters": {
+		"age": ">= 80",
+		"altitude": "< 500.5"
+	}
+}
+```
+
+### 3. String Filters
+
+```json
+{
+	"filters": {
+		"username": {"$contains": "sam"},
+		"city": {"$starts_with": "San"},
+		"email": {"$ends_with": "@example.com"},
+		"country": {"$regex": "^Uni"}
+	}
+}
+```
+
+### 4. Logical Grouping (`$and`, `$or`, `$not`)
+
+```json
+{
+	"operation": "READ",
+	"entity": "main_records",
+	"filters": {
+		"$and": [
+			{"age": {"$gte": 21}},
+			{
+				"$or": [
+					{"city": "Boston"},
+					{"city": "Chicago"}
+				]
+			},
+			{
+				"$not": {
+					"subscription": "free"
+				}
+			}
+		]
+	},
+	"columns": ["username", "age", "city", "subscription"]
+}
+```
+
+### 5. Set and Presence Operators
+
+```json
+{
+	"filters": {
+		"country": {"$in": ["India", "USA"]},
+		"status": {"$nin": ["inactive", "blocked"]},
+		"phone": {"$exists": true}
+	}
+}
+```
+
+### Supported Operators
+
+- `$eq`, `$ne`
+- `$gt`, `$gte`, `$lt`, `$lte` (numeric fields only)
+- `$in`, `$nin` (array value required)
+- `$contains`, `$starts_with`, `$ends_with`, `$regex` (string fields only)
+- `$exists` (boolean value required)
+
+### Validation Rules
+
+- `filters` must be a JSON object.
+- Do not mix logical operators and direct field keys at the same object level.
+- Only one logical operator key is allowed per object level.
+- `$and` and `$or` require non-empty arrays.
+- `$not` requires one nested filter object.
+- Numeric operators are only valid on numeric fields.
+- String operators are only valid on string fields.
+- Invalid filter syntax returns a failed `READ` response with an `error` message.
