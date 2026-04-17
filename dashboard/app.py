@@ -113,3 +113,8 @@ async def setup(request: Request):
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_home(request: Request):
     return templates.TemplateResponse("dashboard.html", {"request": request})
+
+
+@app.get("/dashboard/developer", response_class=HTMLResponse)
+async def developer_dashboard(request: Request):
+    return templates.TemplateResponse("dashboard_developer.html", {"request": request})

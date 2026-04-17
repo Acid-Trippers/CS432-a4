@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timezone
 from typing import Any
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, HTTPException
 import httpx
 from pathlib import Path
 
@@ -10,13 +10,15 @@ from src.config import (
     INITIAL_SCHEMA_FILE,
     METADATA_FILE,
     CHECKPOINT_FILE,
-    TRANSACTION_LOG_FILE
+    TRANSACTION_LOG_FILE,
+    QUERY_OUTPUT_FILE,
 )
 
 router = APIRouter()
 
 _DATA_DIR = Path(METADATA_FILE).resolve().parent
 _PIPELINE_CHECKPOINT_FILE = _DATA_DIR / "pipeline_checkpoint.json"
+_PERF_REPORTS_DIR = _DATA_DIR / "performance_reports"
 
 def _read_json(path, default):
     try:
@@ -153,6 +155,61 @@ def _compute_transaction_stats():
         "success_rate": sr
     }
 
+
+def _load_latest_query_metrics():
+    payload = _read_json(QUERY_OUTPUT_FILE, {})
+    if not isinstance(payload, dict):
+        return {}
+
+    metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
+
+    latest = {
+        "operation": payload.get("operation"),
+        "status": payload.get("status", "unknown"),
+        "metrics": metrics,
+    }
+
+    try:
+        latest["updated_at"] = datetime.fromtimestamp(
+            Path(QUERY_OUTPUT_FILE).stat().st_mtime,
+            timezone.utc,
+        ).isoformat().replace("+00:00", "Z")
+    except Exception:
+        latest["updated_at"] = None
+
+    return latest
+
+
+def _load_performance_report_summaries(limit: int = 12):
+    if not _PERF_REPORTS_DIR.exists() or not _PERF_REPORTS_DIR.is_dir():
+        return {"count": 0, "items": []}
+
+    files = sorted(
+        [p for p in _PERF_REPORTS_DIR.glob("*.json") if p.is_file()],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+
+    items = []
+    for p in files[:limit]:
+        data = _read_json(p, {})
+        items.append(
+            {
+                "filename": p.name,
+                "experiment": data.get("experiment", "unknown"),
+                "generated_at": data.get("generated_at"),
+                "size_bytes": p.stat().st_size,
+                "updated_at": datetime.fromtimestamp(p.stat().st_mtime, timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z"),
+            }
+        )
+
+    return {
+        "count": len(files),
+        "items": items,
+    }
+
 def _load_last_fetch():
     # Read as dict default so valid checkpoint objects are not discarded.
     ckpt = _read_json(_PIPELINE_CHECKPOINT_FILE, {})
@@ -241,4 +298,132 @@ async def get_pipeline_stats(request: Request):
         "pipeline_busy": bool(getattr(request.app.state, "pipeline_busy", False)),
         "last_fetch": _load_last_fetch(),
         "transactions": _compute_transaction_stats()
+    }
+
+
+@router.get("/api/developer/metrics")
+async def get_developer_metrics(request: Request):
+    """Developer-only metrics payload for dashboard diagnostics and performance reports."""
+    return {
+        "latest_query": _load_latest_query_metrics(),
+        "performance_reports": _load_performance_report_summaries(),
+        "transactions": _compute_transaction_stats(),
+        "pipeline_state": str(getattr(request.app.state, "pipeline_state", "fresh")),
+        "pipeline_busy": bool(getattr(request.app.state, "pipeline_busy", False)),
+    }
+
+
+def _run_performance_test(test_name: str) -> dict[str, Any]:
+    """Run one named performance test and return structured payload for UI consumption."""
+    if test_name == "ingestion_latency":
+        from performance_Evaluation.data_ingesion_latency import (
+            benchmark_initialise_latency,
+            benchmark_fetch_latency,
+        )
+
+        return {
+            "initialise": benchmark_initialise_latency(counts=(100,), runs=1),
+            "fetch": benchmark_fetch_latency(fetch_counts=(50,), runs=1, warmup_initialise_count=100),
+        }
+
+    if test_name == "logical_query_response":
+        from performance_Evaluation.logical_query_response_time import benchmark_query_types
+
+        return benchmark_query_types(runs=2, mode="direct")
+
+    if test_name == "metadata_lookup_overhead":
+        from performance_Evaluation.metadata_lookup_overhead import (
+            benchmark_metadata_file_read,
+            benchmark_metadata_parse,
+            benchmark_field_lookup,
+            benchmark_end_to_end_metadata_path,
+        )
+
+        return {
+            "file_read": benchmark_metadata_file_read(runs=50),
+            "json_parse": benchmark_metadata_parse(runs=50),
+            "field_lookup": benchmark_field_lookup(runs=500),
+            "end_to_end_get_field_locations": benchmark_end_to_end_metadata_path(runs=100),
+        }
+
+    if test_name == "transaction_coordination_overhead":
+        from performance_Evaluation.transaction_cordination_overhead_sql_mongo import (
+            benchmark_coordination_overhead,
+            payload_distribution_insight,
+        )
+
+        return {
+            "distribution_hint": payload_distribution_insight(),
+            "results": benchmark_coordination_overhead(runs=3, mode="direct"),
+        }
+
+    raise HTTPException(status_code=404, detail=f"Unknown performance test: {test_name}")
+
+
+@router.get("/api/developer/performance/tests")
+async def get_developer_performance_tests():
+    """List available performance tests for developer dashboard cards."""
+    return {
+        "tests": [
+            {
+                "id": "ingestion_latency",
+                "label": "Data Ingestion Latency",
+                "description": "Benchmarks initialise and fetch latency with throughput metrics.",
+            },
+            {
+                "id": "logical_query_response",
+                "label": "Logical Query Response",
+                "description": "Benchmarks READ/CREATE/UPDATE/DELETE query classes.",
+            },
+            {
+                "id": "metadata_lookup_overhead",
+                "label": "Metadata Lookup Overhead",
+                "description": "Measures file read, parse, and lookup latency paths.",
+            },
+            {
+                "id": "transaction_coordination_overhead",
+                "label": "Transaction Coordination Overhead",
+                "description": "Compares coordinator-backed writes vs manual baseline.",
+            },
+        ]
+    }
+
+
+@router.post("/api/developer/performance/{test_name}")
+async def run_developer_performance_test(test_name: str):
+    """Run one performance test and return machine-friendly result + human status."""
+    started = datetime.now(timezone.utc)
+    result = _run_performance_test(test_name)
+    finished = datetime.now(timezone.utc)
+
+    return {
+        "test": test_name,
+        "status": "completed",
+        "started_at": started.isoformat().replace("+00:00", "Z"),
+        "completed_at": finished.isoformat().replace("+00:00", "Z"),
+        "result": result,
+    }
+
+
+@router.post("/api/developer/performance/run_all")
+async def run_all_developer_performance_tests():
+    """Run all performance tests sequentially for quick developer diagnostics."""
+    started = datetime.now(timezone.utc)
+    ordered_tests = [
+        "ingestion_latency",
+        "logical_query_response",
+        "metadata_lookup_overhead",
+        "transaction_coordination_overhead",
+    ]
+
+    results = {}
+    for test_name in ordered_tests:
+        results[test_name] = _run_performance_test(test_name)
+
+    finished = datetime.now(timezone.utc)
+    return {
+        "status": "completed",
+        "started_at": started.isoformat().replace("+00:00", "Z"),
+        "completed_at": finished.isoformat().replace("+00:00", "Z"),
+        "results": results,
     }
