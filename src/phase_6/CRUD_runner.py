@@ -1,4 +1,5 @@
 import json
+import time
 from src.config import QUERY_FILE, METADATA_FILE, QUERY_OUTPUT_FILE
 from .CRUD_operations import create_operation, read_operation, update_operation, delete_operation
 
@@ -187,8 +188,13 @@ def query_runner(query_dict=None):
 
     if not parsed_query:
         return None
+    
+    run_start = time.perf_counter()
+    started_at = time.time()
 
     db_analysis = analyze_query_databases(parsed_query)
+    
+    after_analysis = time.perf_counter()
     print(f"\nAnalysis Result: {db_analysis}")
 
     operation = parsed_query.get("operation")
