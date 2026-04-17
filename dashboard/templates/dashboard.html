@@ -48,6 +48,15 @@
             >
           </div>
           <div class="header-button-row">
+            <button id="btn-developer-mode" class="btn" type="button">
+              Developer Mode: OFF
+            </button>
+            <a
+              id="btn-open-developer-page"
+              class="btn hidden dev-only"
+              href="/dashboard/developer"
+              >Developer Metrics</a
+            >
             <button
               id="btn-fetch-more-toggle"
               class="btn btn-primary"
@@ -100,6 +109,21 @@
           <article class="kpi-card" id="kpi-data-density"></article>
           <article class="kpi-card" id="kpi-last-fetch"></article>
           <article class="kpi-card" id="kpi-transactions"></article>
+          <article
+            class="kpi-card hidden dev-only"
+            id="kpi-dev-query-total-ms"
+            data-label="Latest Query Time"
+          ></article>
+          <article
+            class="kpi-card hidden dev-only"
+            id="kpi-dev-read-throughput"
+            data-label="READ Throughput"
+          ></article>
+          <article
+            class="kpi-card hidden dev-only"
+            id="kpi-dev-report-count"
+            data-label="Perf Reports"
+          ></article>
         </div>
       </section>
 
@@ -563,7 +587,7 @@
       </div>
     </div>
 
-    <script src="/static/main.js?v=2"></script>
+    <script src="/static/main.js?v=5"></script>
   </body>
 </html>
 

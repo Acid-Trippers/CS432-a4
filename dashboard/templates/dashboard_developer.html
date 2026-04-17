@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Developer Metrics Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/style.css?v=4" />
+  </head>
+  <body>
+    <main id="developer-metrics-root" class="dashboard-shell">
+      <header class="dashboard-header status-card">
+        <div>
+          <p class="eyebrow">Developer View</p>
+          <h1>Developer Metrics</h1>
+          <p class="subtitle">
+            Inspect advanced diagnostics, query timings, and performance report history.
+          </p>
+        </div>
+
+        <div class="header-actions">
+          <div class="state-row compact">
+            <span>Developer Mode</span>
+            <strong id="developer-mode-state" class="state-pill">OFF</strong>
+          </div>
+          <div class="header-button-row">
+            <button id="btn-developer-mode" class="btn" type="button">Developer Mode: OFF</button>
+            <button id="btn-refresh-dev-metrics" class="btn btn-primary" type="button">Refresh</button>
+            <a class="btn" href="/dashboard">Back to Dashboard</a>
+          </div>
+        </div>
+      </header>
+
+      <p id="developer-feedback" class="feedback hidden" role="status"></p>
+
+      <section class="dashboard-section status-card" aria-labelledby="dev-overview-title">
+        <div class="section-heading">
+          <h2 id="dev-overview-title">Developer Overview</h2>
+          <span id="dev-refreshed-at" class="meta-text">Awaiting refresh...</span>
+        </div>
+        <div class="stats-kpi-grid">
+          <article class="kpi-card" id="kpi-dev-init-latency"></article>
+          <article class="kpi-card" id="kpi-dev-init-throughput"></article>
+          <article class="kpi-card" id="kpi-dev-fetch-latency"></article>
+          <article class="kpi-card" id="kpi-dev-fetch-throughput"></article>
+          <article class="kpi-card" id="kpi-dev-report-count"></article>
+          <article class="kpi-card" id="kpi-dev-tx-success"></article>
+          <article class="kpi-card" id="kpi-dev-pipeline-state"></article>
+          <article class="kpi-card" id="kpi-dev-last-query-op"></article>
+        </div>
+      </section>
+
+      <section class="dashboard-section status-card" aria-labelledby="dev-query-title">
+        <div class="section-heading">
+          <h2 id="dev-query-title">Latest Query Metrics</h2>
+        </div>
+        <div class="result-table-wrap">
+          <table class="kv-table">
+            <tbody id="dev-query-metrics-body">
+              <tr><td class="meta-text">No query metrics available.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="dashboard-section status-card" aria-labelledby="dev-reports-title">
+        <div class="section-heading">
+          <h2 id="dev-reports-title">Performance Report History</h2>
+        </div>
+        <div class="result-table-wrap">
+          <table class="result-table" id="dev-reports-table">
+            <thead>
+              <tr>
+                <th>File</th>
+                <th>Experiment</th>
+                <th>Generated At</th>
+                <th>Updated At</th>
+                <th>Size (KB)</th>
+              </tr>
+            </thead>
+            <tbody id="dev-reports-body">
+              <tr><td colspan="5" class="meta-text">No performance reports found.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="dashboard-section status-card" aria-labelledby="dev-tests-title">
+        <div class="section-heading">
+          <h2 id="dev-tests-title">Performance Tests</h2>
+          <button id="btn-run-all-performance" class="btn btn-primary" type="button">
+            Run All Performance Tests
+          </button>
+        </div>
+        <p id="dev-tests-feedback" class="feedback hidden" role="status"></p>
+
+        <div class="acid-grid">
+          <article class="acid-card" data-perf-test="logical_query_response">
+            <div class="acid-head">
+              <h3>Logical Query Response</h3>
+              <span id="badge-perf-logical_query_response" class="result-badge neutral">Not Run</span>
+            </div>
+            <p class="acid-description">
+              Benchmarks READ, CREATE, UPDATE, and DELETE query classes.
+            </p>
+            <button class="btn run-performance-btn" data-perf-test="logical_query_response" type="button">
+              Run Test
+            </button>
+            <details id="details-perf-logical_query_response" class="acid-details hidden">
+              <summary>View Test Summary</summary>
+              <pre id="json-perf-logical_query_response"></pre>
+            </details>
+          </article>
+
+          <article class="acid-card" data-perf-test="metadata_lookup_overhead">
+            <div class="acid-head">
+              <h3>Metadata Lookup Overhead</h3>
+              <span id="badge-perf-metadata_lookup_overhead" class="result-badge neutral">Not Run</span>
+            </div>
+            <p class="acid-description">
+              Measures metadata file read, parse, and end-to-end lookup overhead.
+            </p>
+            <button class="btn run-performance-btn" data-perf-test="metadata_lookup_overhead" type="button">
+              Run Test
+            </button>
+            <details id="details-perf-metadata_lookup_overhead" class="acid-details hidden">
+              <summary>View Test Summary</summary>
+              <pre id="json-perf-metadata_lookup_overhead"></pre>
+            </details>
+          </article>
+
+          <article class="acid-card" data-perf-test="transaction_coordination_overhead">
+            <div class="acid-head">
+              <h3>Transaction Coordination Overhead</h3>
+              <span id="badge-perf-transaction_coordination_overhead" class="result-badge neutral">Not Run</span>
+            </div>
+            <p class="acid-description">
+              Compares coordinator-backed writes against manual SQL+Mongo baseline.
+            </p>
+            <button class="btn run-performance-btn" data-perf-test="transaction_coordination_overhead" type="button">
+              Run Test
+            </button>
+            <details id="details-perf-transaction_coordination_overhead" class="acid-details hidden">
+              <summary>View Test Summary</summary>
+              <pre id="json-perf-transaction_coordination_overhead"></pre>
+            </details>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/main.js?v=5"></script>
+  </body>
+</html>

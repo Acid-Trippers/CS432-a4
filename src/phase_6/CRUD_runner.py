@@ -1,4 +1,5 @@
 import json
+import time
 from src.config import QUERY_FILE, METADATA_FILE, QUERY_OUTPUT_FILE
 from .CRUD_operations import create_operation, read_operation, update_operation, delete_operation
 
@@ -187,8 +188,13 @@ def query_runner(query_dict=None):
 
     if not parsed_query:
         return None
+    
+    run_start = time.perf_counter()
+    started_at = time.time()
 
     db_analysis = analyze_query_databases(parsed_query)
+    
+    after_analysis = time.perf_counter()
     print(f"\nAnalysis Result: {db_analysis}")
 
     operation = parsed_query.get("operation")
@@ -208,7 +214,28 @@ def query_runner(query_dict=None):
             "status": "failed",
             "error": f"Unsupported operation: {operation}"
         }
-
+        
+    finished_at = time.perf_counter()
+    analysis_ms = (after_analysis - run_start) * 1000.0
+    execution_ms = (finished_at - after_analysis) * 1000.0
+    total_ms = (finished_at - run_start) * 1000.0
+    
+    if isinstance(result, dict):
+        metrics = {
+            "started_at_epoch": started_at,
+            "analysis_time_ms": round(analysis_ms, 3),
+            "execution_time_ms": round(execution_ms, 3),
+            "total_time_ms": round(total_ms, 3)
+        }
+        
+        if result.get("operation") == "READ":
+            read_data = result.get("data")
+            if isinstance(read_data, dict):
+                row_count = len(read_data)
+                metrics["records_returned"] = row_count
+                metrics["throughput_records_per_sec"] = round(row_count / (total_ms / 1000.0), 3) if total_ms > 0 else 0.0
+                
+        result["metrics"] = metrics
     # Save result to query_output.json
     if result:
         result = _json_safe(result)

@@ -6,6 +6,8 @@ let currentQueryPage = 1;
 let currentColumnSortMode = "frequency";
 let currentRowSortColumn = "";
 const PAGE_SIZE = 100;
+const DEV_MODE_STORAGE_KEY = "dashboard_developer_mode";
+let developerModeEnabled = false;
 
 let fieldDetailsRows = [];
 let fieldDetailsSortKey = "field_name";
@@ -87,6 +89,12 @@ const ADVANCED_ACID_TESTS = [
   "stress_test_concurrent_ops",
   "persistent_connection",
   "index_integrity",
+];
+
+const PERFORMANCE_TESTS = [
+  "logical_query_response",
+  "metadata_lookup_overhead",
+  "transaction_coordination_overhead",
 ];
 
 const ACID_TEST_DETAILS = {
@@ -333,6 +341,50 @@ function isSetupPage() {
 
 function isDashboardPage() {
   return Boolean(document.getElementById("dashboard-root"));
+}
+
+function isDeveloperMetricsPage() {
+  return Boolean(document.getElementById("developer-metrics-root"));
+}
+
+function loadDeveloperModeSetting() {
+  try {
+    developerModeEnabled = localStorage.getItem(DEV_MODE_STORAGE_KEY) === "on";
+  } catch {
+    developerModeEnabled = false;
+  }
+  return developerModeEnabled;
+}
+
+function persistDeveloperModeSetting(enabled) {
+  developerModeEnabled = Boolean(enabled);
+  try {
+    localStorage.setItem(
+      DEV_MODE_STORAGE_KEY,
+      developerModeEnabled ? "on" : "off",
+    );
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+function applyDeveloperModeUi() {
+  const toggleBtn = document.getElementById("btn-developer-mode");
+  if (toggleBtn) {
+    toggleBtn.textContent = developerModeEnabled
+      ? "Developer Mode: ON"
+      : "Developer Mode: OFF";
+    toggleBtn.classList.toggle("btn-primary", developerModeEnabled);
+  }
+
+  const modePill = document.getElementById("developer-mode-state");
+  if (modePill) {
+    modePill.textContent = developerModeEnabled ? "ON" : "OFF";
+  }
+
+  document.querySelectorAll(".dev-only").forEach((el) => {
+    el.classList.toggle("hidden", !developerModeEnabled);
+  });
 }
 
 function setFeedback(element, message, level = false) {
@@ -705,6 +757,7 @@ function attachSetupHandlers() {
 
 function setDashboardControlsDisabled(disabled) {
   const controls = [
+    document.getElementById("btn-developer-mode"),
     document.getElementById("btn-fetch-more-toggle"),
     document.getElementById("btn-run-fetch"),
     document.getElementById("btn-reset-dashboard"),
@@ -857,7 +910,12 @@ function setKpiCardContent(id, value, subtitle, statusValue = null) {
   card.innerHTML = html;
 }
 
-function renderDashboardStatsBundle(status, stats, pipelineStats) {
+function renderDashboardStatsBundle(
+  status,
+  stats,
+  pipelineStats,
+  developerStats = null,
+) {
   // Update SQL and NoSQL connection indicators
   const sqlDot = document.getElementById("sql-status-dot");
   if (sqlDot) {
@@ -911,6 +969,15 @@ async function refreshDashboardStats() {
       apiGet("/api/stats"),
       apiGet("/api/pipeline/stats"),
     ]);
+
+    let developerStats = null;
+    if (developerModeEnabled) {
+      try {
+        developerStats = await apiGet("/api/developer/metrics");
+      } catch {
+        developerStats = null;
+      }
+    }
 
     const stateLabel = document.getElementById("dashboard-state");
     if (stateLabel)
@@ -1365,6 +1432,33 @@ function renderAcidResult(testName, payload, isError = false) {
   setAcidBadge(testName, "DONE", "neutral");
 }
 
+function setPerformanceBadge(testName, label, variant) {
+  const badge = document.getElementById(`badge-perf-${testName}`);
+  if (!badge) return;
+  badge.textContent = label;
+  badge.classList.remove("neutral", "pass", "fail");
+  badge.classList.add(variant);
+}
+
+function renderPerformanceResult(testName, payload, isError = false) {
+  const details = document.getElementById(`details-perf-${testName}`);
+  const summaryTarget = document.getElementById(`json-perf-${testName}`);
+
+  if (summaryTarget) {
+    summaryTarget.textContent = JSON.stringify(payload || {}, null, 2);
+  }
+  if (details) {
+    details.classList.remove("hidden");
+  }
+
+  if (isError || payload?.error) {
+    setPerformanceBadge(testName, "FAIL", "fail");
+    return;
+  }
+
+  setPerformanceBadge(testName, "PASS", "pass");
+}
+
 async function runSingleAcidTest(testName, isAdvanced = false) {
   const feedback = document.getElementById("acid-feedback");
   const button = document.querySelector(
@@ -1503,7 +1597,271 @@ function downloadQueryJson() {
   URL.revokeObjectURL(url);
 }
 
+function renderDeveloperQueryMetrics(latestQuery) {
+  const body = document.getElementById("dev-query-metrics-body");
+  if (!body) return;
+
+  if (!latestQuery || typeof latestQuery !== "object") {
+    body.innerHTML =
+      '<tr><td class="meta-text">No query metrics available.</td></tr>';
+    return;
+  }
+
+  const rows = [];
+  rows.push(["operation", latestQuery.operation || "-"]);
+  rows.push(["status", latestQuery.status || "-"]);
+  rows.push(["updated_at", latestQuery.updated_at || "-"]);
+
+  const metrics = latestQuery.metrics || {};
+  Object.entries(metrics).forEach(([key, value]) => {
+    rows.push([key, value]);
+  });
+
+  body.innerHTML = rows
+    .map(
+      ([key, value]) =>
+        `<tr><th>${escapeHtml(String(key))}</th><td>${escapeHtml(String(value))}</td></tr>`,
+    )
+    .join("");
+}
+
+function renderDeveloperReports(reports) {
+  const tbody = document.getElementById("dev-reports-body");
+  if (!tbody) return;
+
+  const items = Array.isArray(reports?.items) ? reports.items : [];
+  if (!items.length) {
+    tbody.innerHTML =
+      '<tr><td colspan="5" class="meta-text">No performance reports found.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = items
+    .map((item) => {
+      const kb = (Number(item.size_bytes || 0) / 1024).toFixed(2);
+      return `
+        <tr>
+          <td>${escapeHtml(String(item.filename || "-"))}</td>
+          <td>${escapeHtml(String(item.experiment || "-"))}</td>
+          <td>${escapeHtml(String(item.generated_at || "-"))}</td>
+          <td>${escapeHtml(String(item.updated_at || "-"))}</td>
+          <td>${escapeHtml(String(kb))}</td>
+        </tr>`;
+    })
+    .join("");
+}
+
+function renderDeveloperOverviewCards(payload) {
+  const latestQuery = payload?.latest_query || {};
+  const workflowPerf = payload?.workflow_performance || {};
+  const initMetrics = workflowPerf?.initialize || {};
+  const fetchMetrics = workflowPerf?.fetch || {};
+
+  const initLatencyMs = Number(initMetrics?.latency?.avg_ms || 0).toFixed(3);
+  const initThroughput = Number(
+    initMetrics?.throughput_records_per_sec || 0,
+  ).toFixed(3);
+
+  const hasFetched = Boolean(fetchMetrics?.has_fetched);
+  const fetchLatencyText = hasFetched
+    ? `${Number(fetchMetrics?.latency?.avg_ms || 0).toFixed(3)} ms`
+    : "Not fetched yet";
+  const fetchThroughputText = hasFetched
+    ? `${Number(fetchMetrics?.throughput_records_per_sec || 0).toFixed(3)} r/s`
+    : "Not fetched yet";
+
+  const reports = payload?.performance_reports || { count: 0 };
+  const transactions = payload?.transactions || {};
+
+  setKpiCardContent(
+    "kpi-dev-init-latency",
+    `${initLatencyMs} ms`,
+    `Initialize count: ${formatInteger(initMetrics?.count || 0)}`,
+  );
+  setKpiCardContent(
+    "kpi-dev-init-throughput",
+    `${initThroughput} r/s`,
+    "Initialize throughput",
+  );
+  setKpiCardContent(
+    "kpi-dev-fetch-latency",
+    fetchLatencyText,
+    hasFetched
+      ? `Latest fetch count: ${formatInteger(fetchMetrics?.count || 0)}`
+      : "Run Fetch to populate",
+  );
+  setKpiCardContent(
+    "kpi-dev-fetch-throughput",
+    fetchThroughputText,
+    hasFetched ? "Fetch throughput" : "Run Fetch to populate",
+  );
+  setKpiCardContent(
+    "kpi-dev-report-count",
+    formatInteger(reports.count || 0),
+    "Performance report artifacts",
+  );
+  setKpiCardContent(
+    "kpi-dev-tx-success",
+    `${Number(transactions.success_rate || 0).toFixed(1)}%`,
+    "Transaction success rate",
+  );
+  setKpiCardContent(
+    "kpi-dev-pipeline-state",
+    normalizeState(payload?.pipeline_state),
+    payload?.pipeline_busy ? "Busy" : "Idle",
+  );
+  setKpiCardContent(
+    "kpi-dev-last-query-op",
+    latestQuery.operation || "-",
+    "Last query operation",
+  );
+}
+
+async function refreshDeveloperMetricsPage() {
+  const feedback = document.getElementById("developer-feedback");
+  const refreshed = document.getElementById("dev-refreshed-at");
+
+  if (!developerModeEnabled) {
+    setFeedback(
+      feedback,
+      "Developer Mode is OFF. Turn it on to view developer metrics.",
+      "warn",
+    );
+    return;
+  }
+
+  clearFeedback(feedback);
+  try {
+    const payload = await apiGet("/api/developer/metrics");
+    renderDeveloperOverviewCards(payload);
+    renderDeveloperQueryMetrics(payload.latest_query);
+    renderDeveloperReports(payload.performance_reports);
+    if (refreshed)
+      refreshed.textContent = `Last refreshed: ${formatClockTime(new Date())}`;
+  } catch (error) {
+    setFeedback(feedback, String(error.message || error), true);
+    if (refreshed) refreshed.textContent = "Refresh failed";
+  }
+}
+
+async function runSinglePerformanceTest(testName) {
+  const feedback = document.getElementById("dev-tests-feedback");
+  const button = document.querySelector(
+    `.run-performance-btn[data-perf-test="${testName}"]`,
+  );
+  const previousText = button?.textContent || "Run Test";
+
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Running...";
+  }
+  clearFeedback(feedback);
+  showProgress(`Running performance test: ${testName}...`);
+
+  try {
+    const payload = await apiPost(`/api/developer/performance/${testName}`);
+    renderPerformanceResult(testName, payload, false);
+    setFeedback(feedback, `${testName} completed.`, false);
+    await refreshDeveloperMetricsPage();
+  } catch (error) {
+    renderPerformanceResult(
+      testName,
+      { error: String(error.message || error) },
+      true,
+    );
+    setFeedback(feedback, String(error.message || error), true);
+  } finally {
+    hideProgress();
+    if (button) {
+      button.disabled = false;
+      button.textContent = previousText;
+    }
+  }
+}
+
+async function runAllPerformanceTests() {
+  const feedback = document.getElementById("dev-tests-feedback");
+  const runAllBtn = document.getElementById("btn-run-all-performance");
+
+  if (runAllBtn) {
+    runAllBtn.disabled = true;
+    runAllBtn.textContent = "Running...";
+  }
+
+  document.querySelectorAll(".run-performance-btn").forEach((btn) => {
+    btn.disabled = true;
+  });
+
+  clearFeedback(feedback);
+  showProgress("Running all performance tests...");
+
+  try {
+    const payload = await apiPost("/api/developer/performance/run_all");
+    const results = payload?.results || {};
+    PERFORMANCE_TESTS.forEach((testName) => {
+      if (Object.prototype.hasOwnProperty.call(results, testName)) {
+        renderPerformanceResult(testName, results[testName], false);
+      }
+    });
+
+    setFeedback(feedback, "All manual performance tests completed.", false);
+    await refreshDeveloperMetricsPage();
+  } catch (error) {
+    setFeedback(feedback, String(error.message || error), true);
+  } finally {
+    hideProgress();
+    if (runAllBtn) {
+      runAllBtn.disabled = false;
+      runAllBtn.textContent = "Run All Performance Tests";
+    }
+    document.querySelectorAll(".run-performance-btn").forEach((btn) => {
+      btn.disabled = false;
+    });
+  }
+}
+
+function attachDeveloperMetricsHandlers() {
+  const toggleBtn = document.getElementById("btn-developer-mode");
+  const refreshBtn = document.getElementById("btn-refresh-dev-metrics");
+  const runAllPerfBtn = document.getElementById("btn-run-all-performance");
+
+  if (toggleBtn) {
+    toggleBtn.addEventListener("click", async () => {
+      persistDeveloperModeSetting(!developerModeEnabled);
+      applyDeveloperModeUi();
+      if (!developerModeEnabled) {
+        window.location.href = "/dashboard";
+        return;
+      }
+      await refreshDeveloperMetricsPage();
+    });
+  }
+
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", refreshDeveloperMetricsPage);
+  }
+
+  document.querySelectorAll(".run-performance-btn").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const testName = button.getAttribute("data-perf-test");
+      if (!testName) return;
+      await runSinglePerformanceTest(testName);
+    });
+  });
+
+  if (runAllPerfBtn) {
+    runAllPerfBtn.addEventListener("click", runAllPerformanceTests);
+  }
+}
+
+async function initializeDeveloperMetricsPage() {
+  loadDeveloperModeSetting();
+  applyDeveloperModeUi();
+  await refreshDeveloperMetricsPage();
+}
+
 function attachDashboardHandlers() {
+  const developerModeButton = document.getElementById("btn-developer-mode");
   const fetchToggle = document.getElementById("btn-fetch-more-toggle");
   const fetchForm = document.getElementById("fetch-form-inline");
   const runFetchButton = document.getElementById("btn-run-fetch");
@@ -1518,6 +1876,14 @@ function attachDashboardHandlers() {
   const rowSortSelect = document.getElementById("query-row-sort");
   const queryFeedback = document.getElementById("query-feedback");
   const downloadButton = document.getElementById("btn-download-json");
+
+  if (developerModeButton) {
+    developerModeButton.addEventListener("click", async () => {
+      persistDeveloperModeSetting(!developerModeEnabled);
+      applyDeveloperModeUi();
+      await refreshDashboardStats();
+    });
+  }
 
   if (fetchToggle && fetchForm) {
     fetchToggle.addEventListener("click", () => {
@@ -1741,6 +2107,9 @@ async function initializeDashboard() {
   if (detailsPanel) detailsPanel.classList.add("hidden");
   updateFieldSortButtonState();
 
+  loadDeveloperModeSetting();
+  applyDeveloperModeUi();
+
   await refreshDashboardStats();
 
   if (dashboardStatsTimer) {
@@ -1750,6 +2119,12 @@ async function initializeDashboard() {
 }
 
 function boot() {
+  if (isDeveloperMetricsPage()) {
+    attachDeveloperMetricsHandlers();
+    initializeDeveloperMetricsPage();
+    return;
+  }
+
   if (isDashboardPage()) {
     attachDashboardHandlers();
     initializeDashboard();

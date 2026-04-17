@@ -3,6 +3,7 @@ import importlib
 import json
 import os
 import shutil
+import time
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -13,10 +14,34 @@ from src.phase_6.conflict_detector import get_conflict_detector
 
 
 router = APIRouter()
+_WORKFLOW_METRICS_FILE = os.path.join(DATA_DIR, "developer_workflow_metrics.json")
 
 
 class SchemaPayload(BaseModel):
     schema: dict
+
+
+def _read_workflow_metrics() -> dict:
+    try:
+        if not os.path.exists(_WORKFLOW_METRICS_FILE):
+            return {}
+        with open(_WORKFLOW_METRICS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_workflow_metrics(payload: dict) -> None:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(_WORKFLOW_METRICS_FILE, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+
+
+def _update_workflow_metrics(section: str, value: dict) -> None:
+    current = _read_workflow_metrics()
+    current[section] = value
+    _write_workflow_metrics(current)
 
 
 def _dispose_shared_sql_engine(request: Request) -> None:
@@ -113,8 +138,14 @@ async def run_initialise(request: Request, count: int = Query(default=1000, ge=0
         _dispose_shared_sql_engine(request)
 
         main_module = importlib.import_module("legacy.main")
+        ingestion_metrics_module = importlib.import_module("performance_Evaluation.data_ingesion_latency")
         loop = asyncio.get_event_loop()
+        start = time.perf_counter()
         await loop.run_in_executor(None, lambda: main_module.initialise(count))
+        elapsed = time.perf_counter() - start
+
+        init_metrics = ingestion_metrics_module.build_initialise_workflow_metrics(count=count, elapsed_s=elapsed)
+        _update_workflow_metrics("initialize", init_metrics)
 
         _reinitialize_shared_sql_engine(request)
         _refresh_crud_connections()
@@ -142,8 +173,14 @@ async def run_fetch(request: Request, count: int = Query(default=100, ge=0)):
         _dispose_shared_sql_engine(request)
 
         main_module = importlib.import_module("legacy.main")
+        ingestion_metrics_module = importlib.import_module("performance_Evaluation.data_ingesion_latency")
         loop = asyncio.get_event_loop()
+        start = time.perf_counter()
         await loop.run_in_executor(None, lambda: main_module.fetch(count))
+        elapsed = time.perf_counter() - start
+
+        fetch_metrics = ingestion_metrics_module.build_fetch_workflow_metrics(count=count, elapsed_s=elapsed)
+        _update_workflow_metrics("fetch", fetch_metrics)
 
         _reinitialize_shared_sql_engine(request)
         _refresh_crud_connections()
