@@ -105,7 +105,7 @@ def _build_active_fields(fields):
         
         freq = _safe_float(f.get("frequency", 0.0))
         details.append({
-            "field_name": f.get("name", "unknown"),
+            "field_name": f.get("field_name") or f.get("name", "unknown"),
             "status": st,
             "frequency": round(freq, 4),
             "density": round(freq, 4),
@@ -128,6 +128,76 @@ def _compute_data_density(fields):
     total_freq = sum(_safe_float(f.get("frequency", 0.0)) for f in active_fields)
     avg = total_freq / len(active_fields)
     return round(avg * 100, 1)
+
+def _compute_storage_distribution(fields):
+    """Calculate percentage of data stored in SQL vs MongoDB.
+
+    Each field contributes (frequency x 1) to its store's weight — i.e. the sum
+    of frequencies for all SQL fields vs all Mongo fields.  This reflects how much
+    of a typical record's payload lands in each store.
+
+    Returns both the weighted percentages and the raw field counts so the UI can
+    show e.g. "SQL: 62.3%  (18 fields)" alongside the percentage bar.
+    """
+    active_fields = [f for f in fields if _field_status(f) in ("defined", "discovered")]
+    if not active_fields:
+        return {
+            "sql_percentage": 0.0,
+            "mongo_percentage": 0.0,
+            "sql_weighted": 0.0,
+            "mongo_weighted": 0.0,
+            "total_weighted": 0.0,
+            "sql_field_count": 0,
+            "mongo_field_count": 0,
+            "pending_field_count": 0,
+        }
+
+    sql_weighted = 0.0
+    mongo_weighted = 0.0
+    sql_count = 0
+    mongo_count = 0
+    pending_count = 0
+
+    for f in active_fields:
+        freq = _safe_float(f.get("frequency", 0.0))
+        storage = _storage_type(f)
+
+        if storage == "structured":   # SQL
+            sql_weighted += freq
+            sql_count += 1
+        elif storage == "flexible":   # MongoDB
+            mongo_weighted += freq
+            mongo_count += 1
+        else:
+            pending_count += 1
+
+    total_weighted = sql_weighted + mongo_weighted
+
+    if total_weighted == 0:
+        return {
+            "sql_percentage": 0.0,
+            "mongo_percentage": 0.0,
+            "sql_weighted": 0.0,
+            "mongo_weighted": 0.0,
+            "total_weighted": 0.0,
+            "sql_field_count": sql_count,
+            "mongo_field_count": mongo_count,
+            "pending_field_count": pending_count,
+        }
+
+    sql_pct = round((sql_weighted / total_weighted) * 100.0, 1)
+    mongo_pct = round((mongo_weighted / total_weighted) * 100.0, 1)
+
+    return {
+        "sql_percentage": sql_pct,
+        "mongo_percentage": mongo_pct,
+        "sql_weighted": round(sql_weighted, 4),
+        "mongo_weighted": round(mongo_weighted, 4),
+        "total_weighted": round(total_weighted, 4),
+        "sql_field_count": sql_count,
+        "mongo_field_count": mongo_count,
+        "pending_field_count": pending_count,
+    }
 
 def _compute_transaction_stats():
     log = _read_json(TRANSACTION_LOG_FILE, [])
@@ -381,11 +451,14 @@ async def get_stats(request: Request):
 
     status = "pipeline_busy" if pipeline_busy else "ok"
 
+    fields = _load_metadata_fields()
+
     return {
         "status": status,
         "pipeline_busy": pipeline_busy,
         "total_records": total_records,
         "external_api_reachable": external_api_reachable,
+        "storage_distribution": _compute_storage_distribution(fields),
     }
 
 @router.get("/api/pipeline/stats")
@@ -396,6 +469,7 @@ async def get_pipeline_stats(request: Request):
         "total_records": _get_total_records_from_sql(request),
         "active_fields": _build_active_fields(fields),
         "data_density": _compute_data_density(fields),
+        "storage_distribution": _compute_storage_distribution(fields),
         "pipeline_state": str(getattr(request.app.state, "pipeline_state", "fresh")),
         "pipeline_busy": bool(getattr(request.app.state, "pipeline_busy", False)),
         "last_fetch": _load_last_fetch(),
@@ -465,30 +539,42 @@ def _run_performance_test(test_name: str) -> dict[str, Any]:
         }
 
     if test_name == "metadata_lookup_overhead":
-        from performance_Evaluation.metadata_lookup_overhead import (
-            benchmark_metadata_file_read,
-            benchmark_metadata_parse,
-            benchmark_field_lookup,
-            benchmark_end_to_end_metadata_path,
-        )
+        try:
+            from performance_Evaluation.metadata_lookup_overhead import (
+                benchmark_metadata_file_read,
+                benchmark_metadata_parse,
+                benchmark_field_lookup,
+                benchmark_end_to_end_metadata_path,
+            )
 
-        return {
-            "file_read": benchmark_metadata_file_read(runs=50),
-            "json_parse": benchmark_metadata_parse(runs=50),
-            "field_lookup": benchmark_field_lookup(runs=500),
-            "end_to_end_get_field_locations": benchmark_end_to_end_metadata_path(runs=100),
-        }
+            return {
+                "file_read": benchmark_metadata_file_read(runs=50),
+                "json_parse": benchmark_metadata_parse(runs=50),
+                "field_lookup": benchmark_field_lookup(runs=500),
+                "end_to_end_get_field_locations": benchmark_end_to_end_metadata_path(runs=100),
+            }
+        except Exception as e:
+            import traceback
+            error_detail = f"{type(e).__name__}: {str(e)}"
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=error_detail)
 
     if test_name == "transaction_coordination_overhead":
-        from performance_Evaluation.transaction_coordination_overhead_sql_mongo import (
-            benchmark_coordination_overhead,
-            payload_distribution_insight,
-        )
+        try:
+            from performance_Evaluation.transaction_coordination_overhead_sql_mongo import (
+                benchmark_coordination_overhead,
+                payload_distribution_insight,
+            )
 
-        return {
-            "distribution_hint": payload_distribution_insight(),
-            "results": benchmark_coordination_overhead(runs=3, mode="direct"),
-        }
+            return {
+                "distribution_hint": payload_distribution_insight(),
+                "results": benchmark_coordination_overhead(runs=3, mode="direct"),
+            }
+        except Exception as e:
+            import traceback
+            error_detail = f"{type(e).__name__}: {str(e)}"
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=error_detail)
 
     raise HTTPException(status_code=404, detail=f"Unknown performance test: {test_name}")
 
