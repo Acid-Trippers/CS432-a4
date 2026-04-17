@@ -20,6 +20,7 @@ _DATA_DIR = Path(METADATA_FILE).resolve().parent
 _PIPELINE_CHECKPOINT_FILE = _DATA_DIR / "pipeline_checkpoint.json"
 _PERF_REPORTS_DIR = _DATA_DIR / "performance_reports"
 _WORKFLOW_METRICS_FILE = _DATA_DIR / "developer_workflow_metrics.json"
+_DEV_LOGICAL_QUERY_METRICS_FILE = _DATA_DIR / "developer_logical_query_metrics.json"
 
 def _read_json(path, default):
     try:
@@ -181,6 +182,89 @@ def _load_latest_query_metrics():
     return latest
 
 
+def _extract_avg_latency_ms(case_result: Any) -> float | None:
+    if not isinstance(case_result, dict):
+        return None
+    avg_ms = case_result.get("avg_ms")
+    if avg_ms is None:
+        return None
+    return round(_safe_float(avg_ms, fallback=0.0), 3)
+
+
+def _load_logical_query_test_metrics():
+    persisted = _read_json(_DEV_LOGICAL_QUERY_METRICS_FILE, {})
+    if isinstance(persisted, dict) and persisted:
+        return {
+            "has_results": bool(persisted.get("has_results", False)),
+            "read_ms": persisted.get("read_ms"),
+            "create_ms": persisted.get("create_ms"),
+            "update_ms": persisted.get("update_ms"),
+            "delete_ms": persisted.get("delete_ms"),
+            "updated_at": persisted.get("updated_at"),
+        }
+
+    files = sorted(
+        [
+            p
+            for p in _PERF_REPORTS_DIR.glob("logical_query_response_time_*.json")
+            if p.is_file()
+        ],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+
+    if not files:
+        return {
+            "has_results": False,
+            "read_ms": None,
+            "create_ms": None,
+            "update_ms": None,
+            "delete_ms": None,
+            "updated_at": None,
+        }
+
+    latest_file = files[0]
+    report = _read_json(latest_file, {})
+    results = report.get("results") if isinstance(report.get("results"), dict) else {}
+
+    read_ms = _extract_avg_latency_ms(results.get("READ_simple"))
+    create_ms = _extract_avg_latency_ms(results.get("CREATE_with_cleanup"))
+    update_ms = _extract_avg_latency_ms(results.get("UPDATE_with_cleanup"))
+    delete_ms = _extract_avg_latency_ms(results.get("DELETE_with_cleanup"))
+
+    try:
+        updated_at = datetime.fromtimestamp(latest_file.stat().st_mtime, timezone.utc)
+        updated_at = updated_at.isoformat().replace("+00:00", "Z")
+    except Exception:
+        updated_at = None
+
+    return {
+        "has_results": any(v is not None for v in [read_ms, create_ms, update_ms, delete_ms]),
+        "read_ms": read_ms,
+        "create_ms": create_ms,
+        "update_ms": update_ms,
+        "delete_ms": delete_ms,
+        "updated_at": updated_at,
+    }
+
+
+def _load_actual_query_overview():
+    latest_query = _load_latest_query_metrics()
+    metrics = latest_query.get("metrics") if isinstance(latest_query.get("metrics"), dict) else {}
+    operation = latest_query.get("operation")
+
+    has_run = bool(operation)
+    total_ms = metrics.get("total_time_ms")
+    latency_ms = round(_safe_float(total_ms, fallback=0.0), 3) if total_ms is not None else None
+
+    return {
+        "has_run": has_run,
+        "operation": operation,
+        "latency_ms": latency_ms,
+        "updated_at": latest_query.get("updated_at"),
+    }
+
+
 def _load_performance_report_summaries(limit: int = 12):
     if not _PERF_REPORTS_DIR.exists() or not _PERF_REPORTS_DIR.is_dir():
         return {"count": 0, "items": []}
@@ -324,6 +408,8 @@ async def get_developer_metrics(request: Request):
     """Developer-only metrics payload for dashboard diagnostics and performance reports."""
     return {
         "latest_query": _load_latest_query_metrics(),
+        "logical_query_tests": _load_logical_query_test_metrics(),
+        "actual_query": _load_actual_query_overview(),
         "performance_reports": _load_performance_report_summaries(),
         "workflow_performance": _load_workflow_performance_metrics(),
         "transactions": _compute_transaction_stats(),
@@ -336,8 +422,23 @@ def _run_performance_test(test_name: str) -> dict[str, Any]:
     """Run one named performance test and return structured payload for UI consumption."""
     if test_name == "logical_query_response":
         from performance_Evaluation.logical_query_response_time import benchmark_query_types
+        result = benchmark_query_types(runs=2, mode="direct")
 
-        return benchmark_query_types(runs=2, mode="direct")
+        summary = {
+            "has_results": True,
+            "read_ms": _extract_avg_latency_ms(result.get("READ_simple")),
+            "create_ms": _extract_avg_latency_ms(result.get("CREATE_with_cleanup")),
+            "update_ms": _extract_avg_latency_ms(result.get("UPDATE_with_cleanup")),
+            "delete_ms": _extract_avg_latency_ms(result.get("DELETE_with_cleanup")),
+            "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        }
+        try:
+            with open(_DEV_LOGICAL_QUERY_METRICS_FILE, "w", encoding="utf-8") as f:
+                json.dump(summary, f, indent=2)
+        except Exception:
+            pass
+
+        return result
 
     if test_name == "metadata_lookup_overhead":
         from performance_Evaluation.metadata_lookup_overhead import (

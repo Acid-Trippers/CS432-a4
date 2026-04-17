@@ -1653,6 +1653,8 @@ function renderDeveloperReports(reports) {
 
 function renderDeveloperOverviewCards(payload) {
   const latestQuery = payload?.latest_query || {};
+  const logicalQueryTests = payload?.logical_query_tests || {};
+  const actualQuery = payload?.actual_query || {};
   const workflowPerf = payload?.workflow_performance || {};
   const initMetrics = workflowPerf?.initialize || {};
   const fetchMetrics = workflowPerf?.fetch || {};
@@ -1671,6 +1673,14 @@ function renderDeveloperOverviewCards(payload) {
   const fetchBackendTimeMs = hasFetched
     ? `${Number(fetchMetrics?.backend_completion_ms || 0).toFixed(3)} ms`
     : "Not fetched yet";
+
+  const testNotRunText = "test not run yet";
+  const formatLatencyOrNotRun = (value) => {
+    if (typeof value !== "number" || Number.isNaN(value)) {
+      return testNotRunText;
+    }
+    return `${Number(value).toFixed(3)} ms`;
+  };
 
   setKpiCardContent(
     "kpi-dev-init-latency",
@@ -1710,9 +1720,36 @@ function renderDeveloperOverviewCards(payload) {
     hasFetched ? "Time to storage completion (SQL + Mongo)" : "Run Fetch to populate",
   );
   setKpiCardContent(
-    "kpi-dev-last-query-op",
-    latestQuery.operation || "-",
-    "Last query operation",
+    "kpi-dev-test-read-latency",
+    formatLatencyOrNotRun(logicalQueryTests.read_ms),
+    "Logical test READ latency",
+  );
+  setKpiCardContent(
+    "kpi-dev-test-create-latency",
+    formatLatencyOrNotRun(logicalQueryTests.create_ms),
+    "Logical test CREATE latency",
+  );
+  setKpiCardContent(
+    "kpi-dev-test-update-latency",
+    formatLatencyOrNotRun(logicalQueryTests.update_ms),
+    "Logical test UPDATE latency",
+  );
+  setKpiCardContent(
+    "kpi-dev-test-delete-latency",
+    formatLatencyOrNotRun(logicalQueryTests.delete_ms),
+    "Logical test DELETE latency",
+  );
+  setKpiCardContent(
+    "kpi-dev-actual-query-run",
+    actualQuery.has_run ? "Yes" : "No",
+    actualQuery.has_run
+      ? `Actual query executed: ${actualQuery.operation || latestQuery.operation || "unknown"}`
+      : testNotRunText,
+  );
+  setKpiCardContent(
+    "kpi-dev-actual-query-latency",
+    formatLatencyOrNotRun(actualQuery.latency_ms),
+    actualQuery.has_run ? "Latency of latest actual query" : testNotRunText,
   );
 }
 
