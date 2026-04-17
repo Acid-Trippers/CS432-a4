@@ -1,4 +1,6 @@
-# Connection-based Strictly Isolated Sessions - PLAN
+# Connection-based Strictly Isolated Sessions 
+
+## The Plan
 
 ### Phase 1: Persistent Session State Management (Backend)
 **The Approach:** Instead of relying entirely on volatile RAM, you will create a `sessions.json` file to act as the definitive registry of all client interactions. 
@@ -40,3 +42,71 @@ The frontend must be upgraded to hold its identity and provide the "Active Sessi
 * **Reasoning:** This fulfills the exact parameters of the "Viewing Active Sessions" requirement. By separating the Session Monitor from the data querying interface, you set a clean architectural foundation. 
 
 Once this pipeline is complete, the middleware will successfully track distinct clients, prevent them from overlapping during transactions, and display their activity live. This sets the stage perfectly to implement the Logical Data Browser, as the system will already know exactly which client is asking to view the schema.
+
+## What's Implemented Now
+
+### New file (core logic)
+- `dashboard/session_manager.py`
+  - Owns persistent session registry (`sessions.json`) and archive (`sessions_archive.json`)
+  - Resolves/creates UUIDv4 session IDs
+  - Tracks query history + transaction history per session
+  - Handles idle archiving (30 min default)
+  - Enforces runtime locks:
+    - active pipeline gate
+    - active query counter
+    - single global manual transaction owner
+  - Manages manual transaction state (`BEGIN/EXEC/COMMIT/ROLLBACK` staged ops)
+  - Supports full reset of active + archived sessions
+
+### Changed existing files
+- `src/config.py`
+  - Added: `SESSIONS_FILE`, `SESSIONS_ARCHIVE_FILE`
+
+- `dashboard/app.py`
+  - Added shared `SessionManager` in `app.state` during lifespan init
+
+- `dashboard/dependencies.py`
+  - Added `get_session_id` (reads `X-Session-ID`, resolves/creates session)
+  - Added `get_session_manager`
+
+- `dashboard/routers/query.py`
+  - Added session-aware query execution + response header `X-Session-ID`
+  - Added busy guards for pipeline and global manual transaction lock
+  - Added manual tx endpoints:
+    - `POST /api/query/tx/begin`
+    - `POST /api/query/tx/exec`
+    - `POST /api/query/tx/commit`
+    - `POST /api/query/tx/rollback`
+  - Removed old per-request `refresh_connections()` call from `/api/query`
+
+- `dashboard/routers/pipeline.py`
+  - Added session dependency + response header `X-Session-ID`
+  - Added global exclusivity checks (pipeline vs active query/tx)
+  - On reset, now clears both active and archived session registries
+
+- `dashboard/routers/acid.py`
+  - Added session dependency + response header propagation (`X-Session-ID`)
+
+- `dashboard/routers/stats.py`
+  - Added session monitor endpoints:
+    - `GET /api/stats/sessions`
+    - `GET /api/stats/sessions/{session_id}`
+
+- `src/phase_6/CRUD_runner.py`
+  - Added optional session-aware logging hooks (`log_query_start`, `log_query_end`)
+
+- `dashboard/templates/dashboard.html`
+  - Added “Active Sessions” monitor panel
+
+- `dashboard/static/main.js`
+  - Added `localStorage` session persistence (`dashboard_session_id`)
+  - Added `X-Session-ID` request injection in API helpers
+  - Added response-header session ID sync
+  - Added polling/rendering for session monitor table + row highlight for current session
+
+- `dashboard/static/style.css`
+  - Added styles for session monitor table, status pills, and current-session highlight
+
+### Current behavior notes
+- Locking target is single-process runtime (process-local lock semantics).
+- Manual transaction commit currently executes staged operations sequentially.
