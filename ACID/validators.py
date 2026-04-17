@@ -1,5 +1,7 @@
-"""Minimal ACID validators focused on core atomicity tests."""
+"""Minimal ACID validators focused on core atomicity and consistency tests."""
 
+import os
+import subprocess
 import time
 from sqlalchemy import text
 from pymongo import MongoClient
@@ -80,7 +82,65 @@ def _cleanup(record_id: int):
     mongo_db["main_records"].delete_many({"$or": [{"_id": record_id}, {"record_id": record_id}]})
 
 
-def _run_create(tag: str):
+def _sql_exists_via_engine(engine: SQLEngine, record_id: int) -> bool:
+    s = engine.schema_builder.get_session()
+    try:
+        row = s.execute(
+            text("SELECT 1 FROM main_records WHERE record_id = :record_id LIMIT 1"),
+            {"record_id": record_id},
+        ).first()
+        return row is not None
+    finally:
+        s.close()
+
+
+def _mongo_exists_in_db(db, record_id: int) -> bool:
+    return db["main_records"].count_documents({"$or": [{"_id": record_id}, {"record_id": record_id}]}) > 0
+
+
+def _fresh_visibility_probe(record_id: int) -> tuple[bool, bool]:
+    sql_probe = SQLEngine()
+    sql_probe.initialize()
+    sql_visible = _sql_exists_via_engine(sql_probe, record_id)
+
+    probe_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+    try:
+        probe_db = probe_client[MONGO_DB_NAME]
+        mongo_visible = _mongo_exists_in_db(probe_db, record_id)
+    finally:
+        probe_client.close()
+
+    return sql_visible, mongo_visible
+
+
+def _best_effort_cleanup_with_fresh_connections(record_id: int):
+    try:
+        sql_probe = SQLEngine()
+        sql_probe.initialize()
+        s = sql_probe.schema_builder.get_session()
+        try:
+            s.execute(
+                text("DELETE FROM main_records WHERE record_id = :record_id"),
+                {"record_id": record_id},
+            )
+            s.commit()
+        finally:
+            s.close()
+    except Exception:
+        pass
+
+    try:
+        probe_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        try:
+            probe_db = probe_client[MONGO_DB_NAME]
+            probe_db["main_records"].delete_many({"$or": [{"_id": record_id}, {"record_id": record_id}]})
+        finally:
+            probe_client.close()
+    except Exception:
+        pass
+
+
+def _run_create(tag: str, payload_overrides: dict | None = None):
     query = {
         "operation": "CREATE",
         "entity": "main_records",
@@ -94,6 +154,8 @@ def _run_create(tag: str):
             "comment": tag,
         },
     }
+    if payload_overrides:
+        query["payload"].update(payload_overrides)
     analysis = analyze_query_databases(query)
     return create_operation(query, analysis)
 
@@ -246,12 +308,308 @@ def multi_record_atomicity_test():
             _cleanup(record_id)
 
 def consistency_test():
-    return {"test": "consistency", "passed": False, "error": "not implemented yet"}
+    """Consistency test: reject a type-violating SQL write, keep state valid, and recover with a valid write."""
+    original_counter = _get_counter()
+    invalid_id = original_counter
+    recovery_id = None
+
+    try:
+        # Subcheck 1 + 2: force a type violation in SQL and verify state stays consistent.
+        _cleanup(invalid_id)
+        _set_counter(original_counter)
+
+        invalid_before_sql = _sql_count()
+        invalid_before_mongo = _mongo_count()
+        invalid_result = _run_create(
+            "consistency_invalid",
+            payload_overrides={"cpu_usage": "not-an-integer"},
+        )
+
+        invalid_after_sql = _sql_count()
+        invalid_after_mongo = _mongo_count()
+        invalid_tx_state = (invalid_result.get("transaction") or {}).get("state")
+        invalid_sql_exists_after_invalid = _sql_exists(invalid_id)
+        invalid_mongo_exists_after_invalid = _mongo_exists(invalid_id)
+
+        invalid_rejected = (
+            invalid_result.get("status") == "failed"
+            and invalid_tx_state in ("rolled_back", "failed_needs_recovery")
+        )
+
+        no_invalid_persisted = (
+            invalid_before_sql == invalid_after_sql
+            and invalid_before_mongo == invalid_after_mongo
+            and not invalid_sql_exists_after_invalid
+            and not invalid_mongo_exists_after_invalid
+        )
+
+        # Subcheck 3: verify a valid write immediately after failure succeeds.
+        _cleanup(invalid_id)
+        _set_counter(original_counter)
+        recovery_result = _run_create("consistency_recovery")
+        recovery_id = (recovery_result.get("details") or {}).get("record_id")
+
+        recovery_status = recovery_result.get("status")
+        recovery_sql_exists = _sql_exists(recovery_id) if recovery_id is not None else False
+        recovery_mongo_exists = _mongo_exists(recovery_id) if recovery_id is not None else False
+        recovery_holds = (
+            recovery_status == "success"
+            and recovery_id is not None
+            and recovery_sql_exists
+            and recovery_mongo_exists
+        )
+
+        passed = invalid_rejected and no_invalid_persisted and recovery_holds
+
+        return {
+            "test": "consistency",
+            "passed": passed,
+            "invalid_write_rejected": invalid_rejected,
+            "invalid_state_not_persisted": no_invalid_persisted,
+            "recovery_write_holds": recovery_holds,
+            "tests_run": [
+                "invalid_type_rejection_on_sql_integer_field",
+                "state_validation_after_failed_write",
+                "valid_write_recovery_after_failure",
+            ],
+            "decision_metrics": {
+                "invalid_status": invalid_result.get("status"),
+                "invalid_tx_state": invalid_tx_state,
+                "invalid_field": "cpu_usage",
+                "invalid_value": "not-an-integer",
+                "expected_field_type": "integer",
+                "invalid_sql_count_before_after": f"{invalid_before_sql} -> {invalid_after_sql}",
+                "invalid_mongo_count_before_after": f"{invalid_before_mongo} -> {invalid_after_mongo}",
+                "invalid_sql_exists": invalid_sql_exists_after_invalid,
+                "invalid_mongo_exists": invalid_mongo_exists_after_invalid,
+                "recovery_status": recovery_status,
+                "recovery_record_id": recovery_id,
+                "recovery_sql_exists": recovery_sql_exists,
+                "recovery_mongo_exists": recovery_mongo_exists,
+                "note": "The invalid-write check targets SQL integer field cpu_usage with a string value to verify type enforcement",
+            },
+            "decision_rule": "PASS iff invalid_write_rejected AND invalid_state_not_persisted AND recovery_write_holds",
+        }
+    finally:
+        if recovery_id is not None:
+            _cleanup(recovery_id)
+        _cleanup(invalid_id)
+        _set_counter(original_counter)
 
 
-def isolation_test(num_workers: int = 3):
-    return {"test": "isolation", "passed": False, "error": "not implemented yet"}
+def isolation_test():
+    """Isolation test: verify uncommitted SQL writes are not visible to other sessions."""
+    model = _model()
+    if not model:
+        return {"test": "isolation", "passed": False, "error": "main_records model unavailable"}
+
+    test_record_id = _get_counter()
+    writer = _session()
+    reader_before_commit = _session()
+    reader_after_commit = None
+
+    try:
+        _cleanup(test_record_id)
+
+        writer.execute(
+            text("INSERT INTO main_records (record_id) VALUES (:record_id)"),
+            {"record_id": test_record_id},
+        )
+        writer.flush()
+
+        # Reader session checks visibility while writer transaction is still uncommitted.
+        uncommitted_visible = (
+            reader_before_commit.execute(
+                text("SELECT 1 FROM main_records WHERE record_id = :record_id LIMIT 1"),
+                {"record_id": test_record_id},
+            ).first()
+            is not None
+        )
+
+        writer.commit()
+
+        # Use a fresh session to verify visibility after commit.
+        reader_after_commit = _session()
+        committed_visible = (
+            reader_after_commit.execute(
+                text("SELECT 1 FROM main_records WHERE record_id = :record_id LIMIT 1"),
+                {"record_id": test_record_id},
+            ).first()
+            is not None
+        )
+
+        no_dirty_read = not uncommitted_visible
+        committed_read_visible = committed_visible
+        passed = no_dirty_read and committed_read_visible
+
+        return {
+            "test": "isolation",
+            "passed": passed,
+            "no_dirty_read_holds": no_dirty_read,
+            "committed_read_visible_holds": committed_read_visible,
+            "tests_run": [
+                "reader_cannot_see_uncommitted_write_from_other_session",
+                "reader_sees_write_after_writer_commit",
+            ],
+            "decision_metrics": {
+                "test_record_id": test_record_id,
+                "uncommitted_visible": uncommitted_visible,
+                "committed_visible": committed_visible,
+            },
+            "decision_rule": "PASS iff no_dirty_read_holds AND committed_read_visible_holds",
+        }
+    except Exception as e:
+        try:
+            writer.rollback()
+        except Exception:
+            pass
+        return {
+            "test": "isolation",
+            "passed": False,
+            "error": str(e),
+            "tests_run": [
+                "reader_cannot_see_uncommitted_write_from_other_session",
+                "reader_sees_write_after_writer_commit",
+            ],
+        }
+    finally:
+        try:
+            writer.close()
+        except Exception:
+            pass
+        try:
+            reader_before_commit.close()
+        except Exception:
+            pass
+        if reader_after_commit is not None:
+            try:
+                reader_after_commit.close()
+            except Exception:
+                pass
+        _cleanup(test_record_id)
 
 
-def durability_test():
-    return {"test": "durability", "passed": False, "error": "not implemented yet"}
+def durability_test(crash_check: bool = False):
+    """Durability test: verify committed data survives reconnect, with optional container restart check."""
+    original_counter = _get_counter()
+    record_id = None
+
+    env_crash_check = os.getenv("ACID_DURABILITY_CRASH_CHECK", "0").strip() in {"1", "true", "yes"}
+    crash_check_enabled = bool(crash_check) or env_crash_check
+    crash_restart_success = None
+    crash_sql_visible = None
+    crash_mongo_visible = None
+    crash_error = None
+
+    try:
+        _set_counter(original_counter)
+        _cleanup(original_counter)
+
+        create_result = _run_create("durability_commit")
+        record_id = (create_result.get("details") or {}).get("record_id")
+
+        commit_status = create_result.get("status")
+        commit_holds = commit_status == "success" and record_id is not None
+        if not commit_holds:
+            return {
+                "test": "durability",
+                "passed": False,
+                "commit_holds": False,
+                "reconnect_visibility_holds": False,
+                "repeated_read_stability_holds": False,
+                "tests_run": [
+                    "commit_record_through_normal_create_path",
+                    "read_after_fresh_reconnect",
+                    "repeated_fresh_reads_confirm_persistence",
+                ],
+                "decision_metrics": {
+                    "commit_status": commit_status,
+                    "record_id": record_id,
+                    "crash_check_enabled": crash_check_enabled,
+                },
+                "decision_rule": "PASS iff commit_holds AND reconnect_visibility_holds AND repeated_read_stability_holds AND crash_recovery_holds_if_enabled",
+            }
+
+        reconnect_sql_visible, reconnect_mongo_visible = _fresh_visibility_probe(record_id)
+        reconnect_visibility_holds = reconnect_sql_visible and reconnect_mongo_visible
+
+        repeated_reads = []
+        for _ in range(3):
+            sql_visible, mongo_visible = _fresh_visibility_probe(record_id)
+            repeated_reads.append({"sql_visible": sql_visible, "mongo_visible": mongo_visible})
+        repeated_read_stability_holds = all(item["sql_visible"] and item["mongo_visible"] for item in repeated_reads)
+
+        crash_recovery_holds = True
+        if crash_check_enabled:
+            try:
+                repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+                restart_proc = subprocess.run(
+                    ["docker-compose", "restart", "postgres", "mongo"],
+                    cwd=repo_root,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=240,
+                )
+                crash_restart_success = restart_proc.returncode == 0
+
+                # Give services a short warm-up window and probe with fresh connections.
+                for _ in range(10):
+                    try:
+                        crash_sql_visible, crash_mongo_visible = _fresh_visibility_probe(record_id)
+                        break
+                    except Exception:
+                        time.sleep(2)
+
+                crash_recovery_holds = (
+                    crash_restart_success is True
+                    and crash_sql_visible is True
+                    and crash_mongo_visible is True
+                )
+            except Exception as e:
+                crash_restart_success = False
+                crash_recovery_holds = False
+                crash_error = str(e)
+
+        passed = (
+            commit_holds
+            and reconnect_visibility_holds
+            and repeated_read_stability_holds
+            and crash_recovery_holds
+        )
+
+        tests_run = [
+            "commit_record_through_normal_create_path",
+            "read_after_fresh_reconnect",
+            "repeated_fresh_reads_confirm_persistence",
+        ]
+        if crash_check_enabled:
+            tests_run.append("post_restart_read_after_container_recovery")
+
+        return {
+            "test": "durability",
+            "passed": passed,
+            "commit_holds": commit_holds,
+            "reconnect_visibility_holds": reconnect_visibility_holds,
+            "repeated_read_stability_holds": repeated_read_stability_holds,
+            "crash_recovery_holds": crash_recovery_holds,
+            "tests_run": tests_run,
+            "decision_metrics": {
+                "record_id": record_id,
+                "commit_status": commit_status,
+                "reconnect_sql_visible": reconnect_sql_visible,
+                "reconnect_mongo_visible": reconnect_mongo_visible,
+                "repeated_reads": repeated_reads,
+                "crash_check_enabled": crash_check_enabled,
+                "crash_restart_success": crash_restart_success,
+                "crash_sql_visible": crash_sql_visible,
+                "crash_mongo_visible": crash_mongo_visible,
+                "crash_error": crash_error,
+                "note": "Enable crash phase with ACID_DURABILITY_CRASH_CHECK=1",
+            },
+            "decision_rule": "PASS iff commit_holds AND reconnect_visibility_holds AND repeated_read_stability_holds AND crash_recovery_holds_if_enabled",
+        }
+    finally:
+        if record_id is not None:
+            _best_effort_cleanup_with_fresh_connections(record_id)
+        _set_counter(original_counter)

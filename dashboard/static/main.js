@@ -92,7 +92,10 @@ const ADVANCED_ACID_TESTS = [
 ];
 
 const PERFORMANCE_TESTS = [
-  "logical_query_response",
+  "logical_query_read",
+  "logical_query_create",
+  "logical_query_update",
+  "logical_query_delete",
   "metadata_lookup_overhead",
   "transaction_coordination_overhead",
 ];
@@ -106,19 +109,21 @@ const ACID_TEST_DETAILS = {
   },
   consistency: {
     performed:
-      "Attempted a duplicate/invalid write to validate constraint enforcement.",
-    passCriteria: "Database constraints must reject invalid state transitions.",
+      "Attempted to write a string into the SQL integer field cpu_usage to validate type enforcement, then retried with a valid write.",
+    passCriteria:
+      "The invalid type write must be rejected without persisting bad state, and the follow-up valid write must succeed.",
   },
   isolation: {
     performed:
-      "Ran concurrent reads and checked whether all readers observed a stable committed state.",
+      "Used separate SQL sessions to check read visibility before and after commit from another transaction.",
     passCriteria:
-      "Concurrent reads should be consistent with no dirty/intermediate state leakage.",
+      "Uncommitted writes must be invisible to other sessions, while committed writes become visible.",
   },
   durability: {
     performed:
-      "Committed a record, then re-read it repeatedly from SQL and Mongo.",
-    passCriteria: "Committed data must remain visible across repeated checks.",
+      "Committed a record, re-read it from fresh SQL/Mongo connections, and optionally re-checked visibility after restarting DB containers.",
+    passCriteria:
+      "Committed data must remain visible across reconnects and repeated reads; if crash mode is enabled, it must also survive container restart.",
   },
   multi_record_atomicity: {
     performed:
@@ -237,8 +242,26 @@ function buildAcidSummary(testName, payload, isError = false) {
     const metricEntries = Object.entries(payload.decision_metrics);
     const noteEntry = metricEntries.find(([key]) => key === "note");
     const regularEntries = metricEntries.filter(([key]) => key !== "note");
+    const preferredCrashKeys = [
+      "crash_check_enabled",
+      "crash_restart_success",
+      "crash_sql_visible",
+      "crash_mongo_visible",
+      "crash_error",
+    ];
 
-    regularEntries.slice(0, 8).forEach(([key, value]) => {
+    const prioritized = [];
+    preferredCrashKeys.forEach((key) => {
+      const entry = regularEntries.find(([k]) => k === key);
+      if (entry) prioritized.push(entry);
+    });
+
+    const remaining = regularEntries.filter(
+      ([key]) => !preferredCrashKeys.includes(key),
+    );
+    const metricDisplayEntries = [...prioritized, ...remaining].slice(0, 12);
+
+    metricDisplayEntries.forEach(([key, value]) => {
       lines.push(
         `- ${humanizeAcidLabel(key)}: ${formatAcidMetricValue(value)}`,
       );
@@ -1475,9 +1498,14 @@ async function runSingleAcidTest(testName, isAdvanced = false) {
 
   try {
     // Use advanced endpoint if it's an advanced test
-    const endpoint = isAdvanced
+    let endpoint = isAdvanced
       ? `/api/acid/advanced/${testName}`
       : `/api/acid/${testName}`;
+    if (!isAdvanced && testName === "durability") {
+      const crashToggle = document.getElementById("durability-crash-toggle");
+      const crashCheck = Boolean(crashToggle?.checked);
+      endpoint = `${endpoint}?crash_check=${crashCheck ? "true" : "false"}`;
+    }
     console.log(`[ACID] Fetching: ${endpoint}`);
     const result = await apiGet(endpoint);
     console.log(`[ACID] Result:`, result);
@@ -1653,6 +1681,8 @@ function renderDeveloperReports(reports) {
 
 function renderDeveloperOverviewCards(payload) {
   const latestQuery = payload?.latest_query || {};
+  const logicalQueryTests = payload?.logical_query_tests || {};
+  const actualQuery = payload?.actual_query || {};
   const workflowPerf = payload?.workflow_performance || {};
   const initMetrics = workflowPerf?.initialize || {};
   const fetchMetrics = workflowPerf?.fetch || {};
@@ -1671,6 +1701,14 @@ function renderDeveloperOverviewCards(payload) {
   const fetchBackendTimeMs = hasFetched
     ? `${Number(fetchMetrics?.backend_completion_ms || 0).toFixed(3)} ms`
     : "Not fetched yet";
+
+  const testNotRunText = "test not run yet";
+  const formatLatencyOrNotRun = (value) => {
+    if (typeof value !== "number" || Number.isNaN(value)) {
+      return testNotRunText;
+    }
+    return `${Number(value).toFixed(3)} ms`;
+  };
 
   setKpiCardContent(
     "kpi-dev-init-latency",
@@ -1710,9 +1748,36 @@ function renderDeveloperOverviewCards(payload) {
     hasFetched ? "Time to storage completion (SQL + Mongo)" : "Run Fetch to populate",
   );
   setKpiCardContent(
-    "kpi-dev-last-query-op",
-    latestQuery.operation || "-",
-    "Last query operation",
+    "kpi-dev-test-read-latency",
+    formatLatencyOrNotRun(logicalQueryTests.read_ms),
+    "Logical test READ latency",
+  );
+  setKpiCardContent(
+    "kpi-dev-test-create-latency",
+    formatLatencyOrNotRun(logicalQueryTests.create_ms),
+    "Logical test CREATE latency",
+  );
+  setKpiCardContent(
+    "kpi-dev-test-update-latency",
+    formatLatencyOrNotRun(logicalQueryTests.update_ms),
+    "Logical test UPDATE latency",
+  );
+  setKpiCardContent(
+    "kpi-dev-test-delete-latency",
+    formatLatencyOrNotRun(logicalQueryTests.delete_ms),
+    "Logical test DELETE latency",
+  );
+  setKpiCardContent(
+    "kpi-dev-actual-query-run",
+    actualQuery.has_run ? "Yes" : "No",
+    actualQuery.has_run
+      ? `Actual query executed: ${actualQuery.operation || latestQuery.operation || "unknown"}`
+      : testNotRunText,
+  );
+  setKpiCardContent(
+    "kpi-dev-actual-query-latency",
+    formatLatencyOrNotRun(actualQuery.latency_ms),
+    actualQuery.has_run ? "Latency of latest actual query" : testNotRunText,
   );
 }
 

@@ -51,7 +51,14 @@
           <article class="kpi-card" id="kpi-dev-fetch-throughput"></article>
           <article class="kpi-card" id="kpi-dev-records-fetched"></article>
           <article class="kpi-card" id="kpi-dev-fetch-backend-time"></article>
-          <article class="kpi-card" id="kpi-dev-last-query-op"></article>
+          <article class="kpi-card" id="kpi-dev-test-read-latency"></article>
+          <article class="kpi-card" id="kpi-dev-test-create-latency"></article>
+          <article class="kpi-card" id="kpi-dev-test-update-latency"></article>
+          <article class="kpi-card" id="kpi-dev-test-delete-latency"></article>
+          <article class="kpi-card" id="kpi-dev-actual-query-run"></article>
+          <article class="kpi-card" id="kpi-dev-actual-query-latency"></article>
+          <article class="kpi-card" id="kpi-dev-sql-pct"></article>
+          <article class="kpi-card" id="kpi-dev-mongo-pct"></article>
         </div>
       </section>
 
@@ -100,20 +107,71 @@
         <p id="dev-tests-feedback" class="feedback hidden" role="status"></p>
 
         <div class="acid-grid">
-          <article class="acid-card" data-perf-test="logical_query_response">
+          <article class="acid-card" data-perf-test="logical_query_read">
             <div class="acid-head">
-              <h3>Logical Query Response</h3>
-              <span id="badge-perf-logical_query_response" class="result-badge neutral">Not Run</span>
+              <h3>Logical Query READ</h3>
+              <span id="badge-perf-logical_query_read" class="result-badge neutral">Not Run</span>
             </div>
             <p class="acid-description">
-              Benchmarks READ, CREATE, UPDATE, and DELETE query classes.
+              Benchmarks READ query latency.
             </p>
-            <button class="btn run-performance-btn" data-perf-test="logical_query_response" type="button">
+            <button class="btn run-performance-btn" data-perf-test="logical_query_read" type="button">
               Run Test
             </button>
-            <details id="details-perf-logical_query_response" class="acid-details hidden">
+            <details id="details-perf-logical_query_read" class="acid-details hidden">
               <summary>View Test Summary</summary>
-              <pre id="json-perf-logical_query_response"></pre>
+              <pre id="json-perf-logical_query_read"></pre>
+            </details>
+          </article>
+
+          <article class="acid-card" data-perf-test="logical_query_create">
+            <div class="acid-head">
+              <h3>Logical Query CREATE</h3>
+              <span id="badge-perf-logical_query_create" class="result-badge neutral">Not Run</span>
+            </div>
+            <p class="acid-description">
+              Benchmarks CREATE query latency.
+            </p>
+            <button class="btn run-performance-btn" data-perf-test="logical_query_create" type="button">
+              Run Test
+            </button>
+            <details id="details-perf-logical_query_create" class="acid-details hidden">
+              <summary>View Test Summary</summary>
+              <pre id="json-perf-logical_query_create"></pre>
+            </details>
+          </article>
+
+          <article class="acid-card" data-perf-test="logical_query_update">
+            <div class="acid-head">
+              <h3>Logical Query UPDATE</h3>
+              <span id="badge-perf-logical_query_update" class="result-badge neutral">Not Run</span>
+            </div>
+            <p class="acid-description">
+              Benchmarks UPDATE query latency.
+            </p>
+            <button class="btn run-performance-btn" data-perf-test="logical_query_update" type="button">
+              Run Test
+            </button>
+            <details id="details-perf-logical_query_update" class="acid-details hidden">
+              <summary>View Test Summary</summary>
+              <pre id="json-perf-logical_query_update"></pre>
+            </details>
+          </article>
+
+          <article class="acid-card" data-perf-test="logical_query_delete">
+            <div class="acid-head">
+              <h3>Logical Query DELETE</h3>
+              <span id="badge-perf-logical_query_delete" class="result-badge neutral">Not Run</span>
+            </div>
+            <p class="acid-description">
+              Benchmarks DELETE query latency.
+            </p>
+            <button class="btn run-performance-btn" data-perf-test="logical_query_delete" type="button">
+              Run Test
+            </button>
+            <details id="details-perf-logical_query_delete" class="acid-details hidden">
+              <summary>View Test Summary</summary>
+              <pre id="json-perf-logical_query_delete"></pre>
             </details>
           </article>
 

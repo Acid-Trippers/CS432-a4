@@ -20,6 +20,7 @@ _DATA_DIR = Path(METADATA_FILE).resolve().parent
 _PIPELINE_CHECKPOINT_FILE = _DATA_DIR / "pipeline_checkpoint.json"
 _PERF_REPORTS_DIR = _DATA_DIR / "performance_reports"
 _WORKFLOW_METRICS_FILE = _DATA_DIR / "developer_workflow_metrics.json"
+_DEV_LOGICAL_QUERY_METRICS_FILE = _DATA_DIR / "developer_logical_query_metrics.json"
 
 def _read_json(path, default):
     try:
@@ -104,7 +105,7 @@ def _build_active_fields(fields):
         
         freq = _safe_float(f.get("frequency", 0.0))
         details.append({
-            "field_name": f.get("name", "unknown"),
+            "field_name": f.get("field_name") or f.get("name", "unknown"),
             "status": st,
             "frequency": round(freq, 4),
             "density": round(freq, 4),
@@ -127,6 +128,76 @@ def _compute_data_density(fields):
     total_freq = sum(_safe_float(f.get("frequency", 0.0)) for f in active_fields)
     avg = total_freq / len(active_fields)
     return round(avg * 100, 1)
+
+def _compute_storage_distribution(fields):
+    """Calculate percentage of data stored in SQL vs MongoDB.
+
+    Each field contributes (frequency x 1) to its store's weight — i.e. the sum
+    of frequencies for all SQL fields vs all Mongo fields.  This reflects how much
+    of a typical record's payload lands in each store.
+
+    Returns both the weighted percentages and the raw field counts so the UI can
+    show e.g. "SQL: 62.3%  (18 fields)" alongside the percentage bar.
+    """
+    active_fields = [f for f in fields if _field_status(f) in ("defined", "discovered")]
+    if not active_fields:
+        return {
+            "sql_percentage": 0.0,
+            "mongo_percentage": 0.0,
+            "sql_weighted": 0.0,
+            "mongo_weighted": 0.0,
+            "total_weighted": 0.0,
+            "sql_field_count": 0,
+            "mongo_field_count": 0,
+            "pending_field_count": 0,
+        }
+
+    sql_weighted = 0.0
+    mongo_weighted = 0.0
+    sql_count = 0
+    mongo_count = 0
+    pending_count = 0
+
+    for f in active_fields:
+        freq = _safe_float(f.get("frequency", 0.0))
+        storage = _storage_type(f)
+
+        if storage == "structured":   # SQL
+            sql_weighted += freq
+            sql_count += 1
+        elif storage == "flexible":   # MongoDB
+            mongo_weighted += freq
+            mongo_count += 1
+        else:
+            pending_count += 1
+
+    total_weighted = sql_weighted + mongo_weighted
+
+    if total_weighted == 0:
+        return {
+            "sql_percentage": 0.0,
+            "mongo_percentage": 0.0,
+            "sql_weighted": 0.0,
+            "mongo_weighted": 0.0,
+            "total_weighted": 0.0,
+            "sql_field_count": sql_count,
+            "mongo_field_count": mongo_count,
+            "pending_field_count": pending_count,
+        }
+
+    sql_pct = round((sql_weighted / total_weighted) * 100.0, 1)
+    mongo_pct = round((mongo_weighted / total_weighted) * 100.0, 1)
+
+    return {
+        "sql_percentage": sql_pct,
+        "mongo_percentage": mongo_pct,
+        "sql_weighted": round(sql_weighted, 4),
+        "mongo_weighted": round(mongo_weighted, 4),
+        "total_weighted": round(total_weighted, 4),
+        "sql_field_count": sql_count,
+        "mongo_field_count": mongo_count,
+        "pending_field_count": pending_count,
+    }
 
 def _compute_transaction_stats():
     log = _read_json(TRANSACTION_LOG_FILE, [])
@@ -179,6 +250,89 @@ def _load_latest_query_metrics():
         latest["updated_at"] = None
 
     return latest
+
+
+def _extract_avg_latency_ms(case_result: Any) -> float | None:
+    if not isinstance(case_result, dict):
+        return None
+    avg_ms = case_result.get("avg_ms")
+    if avg_ms is None:
+        return None
+    return round(_safe_float(avg_ms, fallback=0.0), 3)
+
+
+def _load_logical_query_test_metrics():
+    persisted = _read_json(_DEV_LOGICAL_QUERY_METRICS_FILE, {})
+    if isinstance(persisted, dict) and persisted:
+        return {
+            "has_results": bool(persisted.get("has_results", False)),
+            "read_ms": persisted.get("read_ms"),
+            "create_ms": persisted.get("create_ms"),
+            "update_ms": persisted.get("update_ms"),
+            "delete_ms": persisted.get("delete_ms"),
+            "updated_at": persisted.get("updated_at"),
+        }
+
+    files = sorted(
+        [
+            p
+            for p in _PERF_REPORTS_DIR.glob("logical_query_response_time_*.json")
+            if p.is_file()
+        ],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+
+    if not files:
+        return {
+            "has_results": False,
+            "read_ms": None,
+            "create_ms": None,
+            "update_ms": None,
+            "delete_ms": None,
+            "updated_at": None,
+        }
+
+    latest_file = files[0]
+    report = _read_json(latest_file, {})
+    results = report.get("results") if isinstance(report.get("results"), dict) else {}
+
+    read_ms = _extract_avg_latency_ms(results.get("READ_simple"))
+    create_ms = _extract_avg_latency_ms(results.get("CREATE_with_cleanup"))
+    update_ms = _extract_avg_latency_ms(results.get("UPDATE_with_cleanup"))
+    delete_ms = _extract_avg_latency_ms(results.get("DELETE_with_cleanup"))
+
+    try:
+        updated_at = datetime.fromtimestamp(latest_file.stat().st_mtime, timezone.utc)
+        updated_at = updated_at.isoformat().replace("+00:00", "Z")
+    except Exception:
+        updated_at = None
+
+    return {
+        "has_results": any(v is not None for v in [read_ms, create_ms, update_ms, delete_ms]),
+        "read_ms": read_ms,
+        "create_ms": create_ms,
+        "update_ms": update_ms,
+        "delete_ms": delete_ms,
+        "updated_at": updated_at,
+    }
+
+
+def _load_actual_query_overview():
+    latest_query = _load_latest_query_metrics()
+    metrics = latest_query.get("metrics") if isinstance(latest_query.get("metrics"), dict) else {}
+    operation = latest_query.get("operation")
+
+    has_run = bool(operation)
+    total_ms = metrics.get("total_time_ms")
+    latency_ms = round(_safe_float(total_ms, fallback=0.0), 3) if total_ms is not None else None
+
+    return {
+        "has_run": has_run,
+        "operation": operation,
+        "latency_ms": latency_ms,
+        "updated_at": latest_query.get("updated_at"),
+    }
 
 
 def _load_performance_report_summaries(limit: int = 12):
@@ -297,11 +451,14 @@ async def get_stats(request: Request):
 
     status = "pipeline_busy" if pipeline_busy else "ok"
 
+    fields = _load_metadata_fields()
+
     return {
         "status": status,
         "pipeline_busy": pipeline_busy,
         "total_records": total_records,
         "external_api_reachable": external_api_reachable,
+        "storage_distribution": _compute_storage_distribution(fields),
     }
 
 @router.get("/api/pipeline/stats")
@@ -312,6 +469,7 @@ async def get_pipeline_stats(request: Request):
         "total_records": _get_total_records_from_sql(request),
         "active_fields": _build_active_fields(fields),
         "data_density": _compute_data_density(fields),
+        "storage_distribution": _compute_storage_distribution(fields),
         "pipeline_state": str(getattr(request.app.state, "pipeline_state", "fresh")),
         "pipeline_busy": bool(getattr(request.app.state, "pipeline_busy", False)),
         "last_fetch": _load_last_fetch(),
@@ -324,6 +482,8 @@ async def get_developer_metrics(request: Request):
     """Developer-only metrics payload for dashboard diagnostics and performance reports."""
     return {
         "latest_query": _load_latest_query_metrics(),
+        "logical_query_tests": _load_logical_query_test_metrics(),
+        "actual_query": _load_actual_query_overview(),
         "performance_reports": _load_performance_report_summaries(),
         "workflow_performance": _load_workflow_performance_metrics(),
         "transactions": _compute_transaction_stats(),
@@ -334,36 +494,87 @@ async def get_developer_metrics(request: Request):
 
 def _run_performance_test(test_name: str) -> dict[str, Any]:
     """Run one named performance test and return structured payload for UI consumption."""
-    if test_name == "logical_query_response":
-        from performance_Evaluation.logical_query_response_time import benchmark_query_types
+    logical_query_case_map = {
+        "logical_query_read": "READ_simple",
+        "logical_query_create": "CREATE_with_cleanup",
+        "logical_query_update": "UPDATE_with_cleanup",
+        "logical_query_delete": "DELETE_with_cleanup",
+    }
 
-        return benchmark_query_types(runs=2, mode="direct")
+    if test_name in logical_query_case_map:
+        from performance_Evaluation.logical_query_response_time import benchmark_query_case
+
+        case_name = logical_query_case_map[test_name]
+        case_result = benchmark_query_case(case_name=case_name, runs=2, mode="direct")
+
+        existing = _read_json(_DEV_LOGICAL_QUERY_METRICS_FILE, {})
+        if not isinstance(existing, dict):
+            existing = {}
+
+        mapped_field = {
+            "logical_query_read": "read_ms",
+            "logical_query_create": "create_ms",
+            "logical_query_update": "update_ms",
+            "logical_query_delete": "delete_ms",
+        }[test_name]
+
+        existing[mapped_field] = _extract_avg_latency_ms(case_result)
+        existing["has_results"] = bool(
+            existing.get("read_ms") is not None
+            or existing.get("create_ms") is not None
+            or existing.get("update_ms") is not None
+            or existing.get("delete_ms") is not None
+        )
+        existing["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+        try:
+            with open(_DEV_LOGICAL_QUERY_METRICS_FILE, "w", encoding="utf-8") as f:
+                json.dump(existing, f, indent=2)
+        except Exception:
+            pass
+
+        return {
+            "case": case_name,
+            "summary": case_result,
+        }
 
     if test_name == "metadata_lookup_overhead":
-        from performance_Evaluation.metadata_lookup_overhead import (
-            benchmark_metadata_file_read,
-            benchmark_metadata_parse,
-            benchmark_field_lookup,
-            benchmark_end_to_end_metadata_path,
-        )
+        try:
+            from performance_Evaluation.metadata_lookup_overhead import (
+                benchmark_metadata_file_read,
+                benchmark_metadata_parse,
+                benchmark_field_lookup,
+                benchmark_end_to_end_metadata_path,
+            )
 
-        return {
-            "file_read": benchmark_metadata_file_read(runs=50),
-            "json_parse": benchmark_metadata_parse(runs=50),
-            "field_lookup": benchmark_field_lookup(runs=500),
-            "end_to_end_get_field_locations": benchmark_end_to_end_metadata_path(runs=100),
-        }
+            return {
+                "file_read": benchmark_metadata_file_read(runs=50),
+                "json_parse": benchmark_metadata_parse(runs=50),
+                "field_lookup": benchmark_field_lookup(runs=500),
+                "end_to_end_get_field_locations": benchmark_end_to_end_metadata_path(runs=100),
+            }
+        except Exception as e:
+            import traceback
+            error_detail = f"{type(e).__name__}: {str(e)}"
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=error_detail)
 
     if test_name == "transaction_coordination_overhead":
-        from performance_Evaluation.transaction_coordination_overhead_sql_mongo import (
-            benchmark_coordination_overhead,
-            payload_distribution_insight,
-        )
+        try:
+            from performance_Evaluation.transaction_coordination_overhead_sql_mongo import (
+                benchmark_coordination_overhead,
+                payload_distribution_insight,
+            )
 
-        return {
-            "distribution_hint": payload_distribution_insight(),
-            "results": benchmark_coordination_overhead(runs=3, mode="direct"),
-        }
+            return {
+                "distribution_hint": payload_distribution_insight(),
+                "results": benchmark_coordination_overhead(runs=3, mode="direct"),
+            }
+        except Exception as e:
+            import traceback
+            error_detail = f"{type(e).__name__}: {str(e)}"
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=error_detail)
 
     raise HTTPException(status_code=404, detail=f"Unknown performance test: {test_name}")
 
@@ -374,9 +585,24 @@ async def get_developer_performance_tests():
     return {
         "tests": [
             {
-                "id": "logical_query_response",
-                "label": "Logical Query Response",
-                "description": "Benchmarks READ/CREATE/UPDATE/DELETE query classes.",
+                "id": "logical_query_read",
+                "label": "Logical Query READ",
+                "description": "Benchmarks READ query latency.",
+            },
+            {
+                "id": "logical_query_create",
+                "label": "Logical Query CREATE",
+                "description": "Benchmarks CREATE query latency.",
+            },
+            {
+                "id": "logical_query_update",
+                "label": "Logical Query UPDATE",
+                "description": "Benchmarks UPDATE query latency.",
+            },
+            {
+                "id": "logical_query_delete",
+                "label": "Logical Query DELETE",
+                "description": "Benchmarks DELETE query latency.",
             },
             {
                 "id": "metadata_lookup_overhead",
@@ -413,7 +639,10 @@ async def run_all_developer_performance_tests():
     """Run all performance tests sequentially for quick developer diagnostics."""
     started = datetime.now(timezone.utc)
     ordered_tests = [
-        "logical_query_response",
+        "logical_query_read",
+        "logical_query_create",
+        "logical_query_update",
+        "logical_query_delete",
         "metadata_lookup_overhead",
         "transaction_coordination_overhead",
     ]
