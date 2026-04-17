@@ -1658,9 +1658,8 @@ function renderDeveloperOverviewCards(payload) {
   const fetchMetrics = workflowPerf?.fetch || {};
 
   const initLatencyMs = Number(initMetrics?.latency?.avg_ms || 0).toFixed(3);
-  const initThroughput = Number(
-    initMetrics?.throughput_records_per_sec || 0,
-  ).toFixed(3);
+  const initThroughput = Number(initMetrics?.throughput_records_per_sec || 0).toFixed(3);
+  const initBackendTimeMs = Number(initMetrics?.backend_completion_ms || 0).toFixed(3);
 
   const hasFetched = Boolean(fetchMetrics?.has_fetched);
   const fetchLatencyText = hasFetched
@@ -1669,9 +1668,9 @@ function renderDeveloperOverviewCards(payload) {
   const fetchThroughputText = hasFetched
     ? `${Number(fetchMetrics?.throughput_records_per_sec || 0).toFixed(3)} r/s`
     : "Not fetched yet";
-
-  const reports = payload?.performance_reports || { count: 0 };
-  const transactions = payload?.transactions || {};
+  const fetchBackendTimeMs = hasFetched
+    ? `${Number(fetchMetrics?.backend_completion_ms || 0).toFixed(3)} ms`
+    : "Not fetched yet";
 
   setKpiCardContent(
     "kpi-dev-init-latency",
@@ -1682,6 +1681,11 @@ function renderDeveloperOverviewCards(payload) {
     "kpi-dev-init-throughput",
     `${initThroughput} r/s`,
     "Initialize throughput",
+  );
+  setKpiCardContent(
+    "kpi-dev-init-backend-time",
+    `${initBackendTimeMs} ms`,
+    "Time to storage completion (SQL + Mongo)",
   );
   setKpiCardContent(
     "kpi-dev-fetch-latency",
@@ -1696,19 +1700,14 @@ function renderDeveloperOverviewCards(payload) {
     hasFetched ? "Fetch throughput" : "Run Fetch to populate",
   );
   setKpiCardContent(
-    "kpi-dev-report-count",
-    formatInteger(reports.count || 0),
-    "Performance report artifacts",
+    "kpi-dev-records-fetched",
+    hasFetched ? formatInteger(fetchMetrics?.count || 0) : "-",
+    "Records fetched last time",
   );
   setKpiCardContent(
-    "kpi-dev-tx-success",
-    `${Number(transactions.success_rate || 0).toFixed(1)}%`,
-    "Transaction success rate",
-  );
-  setKpiCardContent(
-    "kpi-dev-pipeline-state",
-    normalizeState(payload?.pipeline_state),
-    payload?.pipeline_busy ? "Busy" : "Idle",
+    "kpi-dev-fetch-backend-time",
+    fetchBackendTimeMs,
+    hasFetched ? "Time to storage completion (SQL + Mongo)" : "Run Fetch to populate",
   );
   setKpiCardContent(
     "kpi-dev-last-query-op",

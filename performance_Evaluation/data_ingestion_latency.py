@@ -65,10 +65,23 @@ def build_initialise_workflow_metrics(count, elapsed_s):
     count = int(count or 0)
     elapsed_s = float(elapsed_s or 0.0)
     throughput = (count / elapsed_s) if elapsed_s > 0 else 0.0
+    
+    # Try to read backend completion time
+    backend_completion_ms = 0
+    try:
+        backend_metrics_path = Path(__file__).resolve().parents[1] / "data" / "pipeline_backend_metrics.json"
+        if backend_metrics_path.exists():
+            with open(backend_metrics_path, 'r') as f:
+                backend_data = json.load(f)
+                backend_completion_ms = backend_data.get("backend_completion_ms", 0)
+    except Exception:
+        pass
+    
     return {
         "count": count,
         "latency": _summarize([elapsed_s]),
         "throughput_records_per_sec": round(throughput, 3),
+        "backend_completion_ms": round(backend_completion_ms, 3),
         "updated_at": datetime.utcnow().isoformat() + "Z",
     }
 
@@ -78,10 +91,23 @@ def build_fetch_workflow_metrics(count, elapsed_s):
     count = int(count or 0)
     elapsed_s = float(elapsed_s or 0.0)
     throughput = (count / elapsed_s) if elapsed_s > 0 else 0.0
+    
+    # Try to read backend completion time
+    backend_completion_ms = 0
+    try:
+        backend_metrics_path = Path(__file__).resolve().parents[1] / "data" / "pipeline_backend_metrics.json"
+        if backend_metrics_path.exists():
+            with open(backend_metrics_path, 'r') as f:
+                backend_data = json.load(f)
+                backend_completion_ms = backend_data.get("backend_completion_ms", 0)
+    except Exception:
+        pass
+    
     return {
         "count": count,
         "latency": _summarize([elapsed_s]),
         "throughput_records_per_sec": round(throughput, 3),
+        "backend_completion_ms": round(backend_completion_ms, 3),
         "updated_at": datetime.utcnow().isoformat() + "Z",
     }
 

@@ -3,7 +3,7 @@
 The repository includes four benchmark scripts in the performance_Evaluation folder.
 
 1. Data ingestion latency
-   Script: [data_ingesion_latency.py](http://_vscodecontentref_/6)
+   Script: [data_ingestion_latency.py](http://_vscodecontentref_/6)
    Measures:
    - Average latency
    - Throughput in operations per second
@@ -38,7 +38,7 @@ All reports are saved to:
 data/performance_reports
 
 Example runs:
-python [data_ingesion_latency.py](http://_vscodecontentref_/10)
+python [data_ingestion_latency.py](http://_vscodecontentref_/10)
 python [logical_query_response_time.py](http://_vscodecontentref_/11)
 python [metadata_lookup_overhead.py](http://_vscodecontentref_/12)
 python [transaction_cordination_overhead_sql_mongo.py](http://_vscodecontentref_/13)

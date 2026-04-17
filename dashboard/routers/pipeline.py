@@ -138,7 +138,7 @@ async def run_initialise(request: Request, count: int = Query(default=1000, ge=0
         _dispose_shared_sql_engine(request)
 
         main_module = importlib.import_module("legacy.main")
-        ingestion_metrics_module = importlib.import_module("performance_Evaluation.data_ingesion_latency")
+        ingestion_metrics_module = importlib.import_module("performance_Evaluation.data_ingestion_latency")
         loop = asyncio.get_event_loop()
         start = time.perf_counter()
         await loop.run_in_executor(None, lambda: main_module.initialise(count))
@@ -173,7 +173,7 @@ async def run_fetch(request: Request, count: int = Query(default=100, ge=0)):
         _dispose_shared_sql_engine(request)
 
         main_module = importlib.import_module("legacy.main")
-        ingestion_metrics_module = importlib.import_module("performance_Evaluation.data_ingesion_latency")
+        ingestion_metrics_module = importlib.import_module("performance_Evaluation.data_ingestion_latency")
         loop = asyncio.get_event_loop()
         start = time.perf_counter()
         await loop.run_in_executor(None, lambda: main_module.fetch(count))
