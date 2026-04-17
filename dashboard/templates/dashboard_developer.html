@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/static/style.css?v=3" />
+    <link rel="stylesheet" href="/static/style.css?v=4" />
   </head>
   <body>
     <main id="developer-metrics-root" class="dashboard-shell">
@@ -44,8 +44,10 @@
           <span id="dev-refreshed-at" class="meta-text">Awaiting refresh...</span>
         </div>
         <div class="stats-kpi-grid">
-          <article class="kpi-card" id="kpi-dev-query-total-ms"></article>
-          <article class="kpi-card" id="kpi-dev-query-throughput"></article>
+          <article class="kpi-card" id="kpi-dev-init-latency"></article>
+          <article class="kpi-card" id="kpi-dev-init-throughput"></article>
+          <article class="kpi-card" id="kpi-dev-fetch-latency"></article>
+          <article class="kpi-card" id="kpi-dev-fetch-throughput"></article>
           <article class="kpi-card" id="kpi-dev-report-count"></article>
           <article class="kpi-card" id="kpi-dev-tx-success"></article>
           <article class="kpi-card" id="kpi-dev-pipeline-state"></article>
@@ -98,23 +100,6 @@
         <p id="dev-tests-feedback" class="feedback hidden" role="status"></p>
 
         <div class="acid-grid">
-          <article class="acid-card" data-perf-test="ingestion_latency">
-            <div class="acid-head">
-              <h3>Data Ingestion Latency</h3>
-              <span id="badge-perf-ingestion_latency" class="result-badge neutral">Not Run</span>
-            </div>
-            <p class="acid-description">
-              Measures initialise/fetch latency and throughput for ingestion workflows.
-            </p>
-            <button class="btn run-performance-btn" data-perf-test="ingestion_latency" type="button">
-              Run Test
-            </button>
-            <details id="details-perf-ingestion_latency" class="acid-details hidden">
-              <summary>View Test Summary</summary>
-              <pre id="json-perf-ingestion_latency"></pre>
-            </details>
-          </article>
-
           <article class="acid-card" data-perf-test="logical_query_response">
             <div class="acid-head">
               <h3>Logical Query Response</h3>
@@ -169,6 +154,6 @@
       </section>
     </main>
 
-    <script src="/static/main.js?v=4"></script>
+    <script src="/static/main.js?v=5"></script>
   </body>
 </html>

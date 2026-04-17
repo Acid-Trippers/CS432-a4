@@ -93,7 +93,6 @@ const ADVANCED_ACID_TESTS = [
 ];
 
 const PERFORMANCE_TESTS = [
-  "ingestion_latency",
   "logical_query_response",
   "metadata_lookup_overhead",
   "transaction_coordination_overhead",
@@ -1569,19 +1568,45 @@ function renderDeveloperReports(reports) {
 
 function renderDeveloperOverviewCards(payload) {
   const latestQuery = payload?.latest_query || {};
-  const queryMetrics = latestQuery.metrics || {};
+  const workflowPerf = payload?.workflow_performance || {};
+  const initMetrics = workflowPerf?.initialize || {};
+  const fetchMetrics = workflowPerf?.fetch || {};
+
+  const initLatencyMs = Number(initMetrics?.latency?.avg_ms || 0).toFixed(3);
+  const initThroughput = Number(initMetrics?.throughput_records_per_sec || 0).toFixed(3);
+
+  const hasFetched = Boolean(fetchMetrics?.has_fetched);
+  const fetchLatencyText = hasFetched
+    ? `${Number(fetchMetrics?.latency?.avg_ms || 0).toFixed(3)} ms`
+    : "Not fetched yet";
+  const fetchThroughputText = hasFetched
+    ? `${Number(fetchMetrics?.throughput_records_per_sec || 0).toFixed(3)} r/s`
+    : "Not fetched yet";
+
   const reports = payload?.performance_reports || { count: 0 };
   const transactions = payload?.transactions || {};
 
   setKpiCardContent(
-    "kpi-dev-query-total-ms",
-    `${Number(queryMetrics.total_time_ms || 0).toFixed(3)} ms`,
-    "Latest query total latency",
+    "kpi-dev-init-latency",
+    `${initLatencyMs} ms`,
+    `Initialize count: ${formatInteger(initMetrics?.count || 0)}`,
   );
   setKpiCardContent(
-    "kpi-dev-query-throughput",
-    `${Number(queryMetrics.throughput_records_per_sec || 0).toFixed(3)} r/s`,
-    "Latest READ throughput",
+    "kpi-dev-init-throughput",
+    `${initThroughput} r/s`,
+    "Initialize throughput",
+  );
+  setKpiCardContent(
+    "kpi-dev-fetch-latency",
+    fetchLatencyText,
+    hasFetched
+      ? `Latest fetch count: ${formatInteger(fetchMetrics?.count || 0)}`
+      : "Run Fetch to populate",
+  );
+  setKpiCardContent(
+    "kpi-dev-fetch-throughput",
+    fetchThroughputText,
+    hasFetched ? "Fetch throughput" : "Run Fetch to populate",
   );
   setKpiCardContent(
     "kpi-dev-report-count",
@@ -1685,7 +1710,7 @@ async function runAllPerformanceTests() {
       }
     });
 
-    setFeedback(feedback, "All performance tests completed.", false);
+    setFeedback(feedback, "All manual performance tests completed.", false);
     await refreshDeveloperMetricsPage();
   } catch (error) {
     setFeedback(feedback, String(error.message || error), true);

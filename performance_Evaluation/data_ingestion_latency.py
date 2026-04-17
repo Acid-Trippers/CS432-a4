@@ -4,7 +4,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-import main
+try:
+    import legacy.main as main
+except ImportError:
+    # Fallback for environments that still expose root-level main.py
+    import main
 from src.phase_6 import CRUD_operations as crud_ops
 
 
@@ -56,6 +60,32 @@ def _summarize(samples):
     }
 
 
+def build_initialise_workflow_metrics(count, elapsed_s):
+    """Build one-run initialize metrics from an already executed workflow call."""
+    count = int(count or 0)
+    elapsed_s = float(elapsed_s or 0.0)
+    throughput = (count / elapsed_s) if elapsed_s > 0 else 0.0
+    return {
+        "count": count,
+        "latency": _summarize([elapsed_s]),
+        "throughput_records_per_sec": round(throughput, 3),
+        "updated_at": datetime.utcnow().isoformat() + "Z",
+    }
+
+
+def build_fetch_workflow_metrics(count, elapsed_s):
+    """Build one-run fetch metrics from an already executed workflow call."""
+    count = int(count or 0)
+    elapsed_s = float(elapsed_s or 0.0)
+    throughput = (count / elapsed_s) if elapsed_s > 0 else 0.0
+    return {
+        "count": count,
+        "latency": _summarize([elapsed_s]),
+        "throughput_records_per_sec": round(throughput, 3),
+        "updated_at": datetime.utcnow().isoformat() + "Z",
+    }
+
+
 def get_backend_distribution(entity="main_records"):
     """Return current row/document distribution across SQL and Mongo for an entity."""
     print(f"[DIST] Refreshing connections to compute backend distribution for entity='{entity}'")
@@ -72,7 +102,7 @@ def get_backend_distribution(entity="main_records"):
     if crud_ops.mongo_available:
         mongo_count = crud_ops.mongo_db[entity].count_documents({})
 
-    total = sql_count + mongo_count
+    total = sql_count
     distribution = {
         "sql_count": sql_count,
         "mongo_count": mongo_count,

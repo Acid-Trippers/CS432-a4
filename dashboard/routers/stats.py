@@ -19,6 +19,7 @@ router = APIRouter()
 _DATA_DIR = Path(METADATA_FILE).resolve().parent
 _PIPELINE_CHECKPOINT_FILE = _DATA_DIR / "pipeline_checkpoint.json"
 _PERF_REPORTS_DIR = _DATA_DIR / "performance_reports"
+_WORKFLOW_METRICS_FILE = _DATA_DIR / "developer_workflow_metrics.json"
 
 def _read_json(path, default):
     try:
@@ -210,6 +211,23 @@ def _load_performance_report_summaries(limit: int = 12):
         "items": items,
     }
 
+
+def _load_workflow_performance_metrics():
+    payload = _read_json(_WORKFLOW_METRICS_FILE, {})
+    if not isinstance(payload, dict):
+        payload = {}
+
+    initialize_metrics = payload.get("initialize") if isinstance(payload.get("initialize"), dict) else {}
+    fetch_metrics = payload.get("fetch") if isinstance(payload.get("fetch"), dict) else {}
+
+    return {
+        "initialize": initialize_metrics,
+        "fetch": {
+            "has_fetched": bool(fetch_metrics),
+            **fetch_metrics,
+        },
+    }
+
 def _load_last_fetch():
     # Read as dict default so valid checkpoint objects are not discarded.
     ckpt = _read_json(_PIPELINE_CHECKPOINT_FILE, {})
@@ -307,6 +325,7 @@ async def get_developer_metrics(request: Request):
     return {
         "latest_query": _load_latest_query_metrics(),
         "performance_reports": _load_performance_report_summaries(),
+        "workflow_performance": _load_workflow_performance_metrics(),
         "transactions": _compute_transaction_stats(),
         "pipeline_state": str(getattr(request.app.state, "pipeline_state", "fresh")),
         "pipeline_busy": bool(getattr(request.app.state, "pipeline_busy", False)),
@@ -315,17 +334,6 @@ async def get_developer_metrics(request: Request):
 
 def _run_performance_test(test_name: str) -> dict[str, Any]:
     """Run one named performance test and return structured payload for UI consumption."""
-    if test_name == "ingestion_latency":
-        from performance_Evaluation.data_ingesion_latency import (
-            benchmark_initialise_latency,
-            benchmark_fetch_latency,
-        )
-
-        return {
-            "initialise": benchmark_initialise_latency(counts=(100,), runs=1),
-            "fetch": benchmark_fetch_latency(fetch_counts=(50,), runs=1, warmup_initialise_count=100),
-        }
-
     if test_name == "logical_query_response":
         from performance_Evaluation.logical_query_response_time import benchmark_query_types
 
@@ -347,7 +355,7 @@ def _run_performance_test(test_name: str) -> dict[str, Any]:
         }
 
     if test_name == "transaction_coordination_overhead":
-        from performance_Evaluation.transaction_cordination_overhead_sql_mongo import (
+        from performance_Evaluation.transaction_coordination_overhead_sql_mongo import (
             benchmark_coordination_overhead,
             payload_distribution_insight,
         )
@@ -365,11 +373,6 @@ async def get_developer_performance_tests():
     """List available performance tests for developer dashboard cards."""
     return {
         "tests": [
-            {
-                "id": "ingestion_latency",
-                "label": "Data Ingestion Latency",
-                "description": "Benchmarks initialise and fetch latency with throughput metrics.",
-            },
             {
                 "id": "logical_query_response",
                 "label": "Logical Query Response",
@@ -410,7 +413,6 @@ async def run_all_developer_performance_tests():
     """Run all performance tests sequentially for quick developer diagnostics."""
     started = datetime.now(timezone.utc)
     ordered_tests = [
-        "ingestion_latency",
         "logical_query_response",
         "metadata_lookup_overhead",
         "transaction_coordination_overhead",
