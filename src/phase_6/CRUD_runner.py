@@ -3,6 +3,24 @@ from src.config import QUERY_FILE, METADATA_FILE, QUERY_OUTPUT_FILE
 from .CRUD_operations import create_operation, read_operation, update_operation, delete_operation
 
 
+def _extract_filter_fields(filters):
+    """Return all concrete field names referenced by a filter tree."""
+    fields = set()
+    if not isinstance(filters, dict):
+        return fields
+
+    for key, value in filters.items():
+        if key in {"$and", "$or"} and isinstance(value, list):
+            for item in value:
+                fields.update(_extract_filter_fields(item))
+        elif key == "$not" and isinstance(value, dict):
+            fields.update(_extract_filter_fields(value))
+        elif not str(key).startswith("$"):
+            fields.add(key)
+
+    return fields
+
+
 def _json_safe(value):
     if isinstance(value, dict):
         return {key: _json_safe(item) for key, item in value.items()}
@@ -102,19 +120,22 @@ def analyze_query_databases(parsed_query):
         # For UPDATE, analyze BOTH filters AND payload
         filters = parsed_query.get("filters", {})
         payload = parsed_query.get("payload", {})
-        fields_to_analyze = {**filters, **payload}
-        field_source_type = {k: "filter" for k in filters.keys()}
+        filter_fields = sorted(_extract_filter_fields(filters))
+        fields_to_analyze = {k: None for k in filter_fields}
+        fields_to_analyze.update(payload)
+        field_source_type = {k: "filter" for k in filter_fields}
         field_source_type.update({k: "payload" for k in payload.keys()})
         print(f"\n[ANALYZE] Operation: {operation}")
-        print(f"[ANALYZE] Analyzing FILTER fields ({len(filters)}) + PAYLOAD fields ({len(payload)})")
+        print(f"[ANALYZE] Analyzing FILTER fields ({len(filter_fields)}) + PAYLOAD fields ({len(payload)})")
         
     else:  # READ or DELETE
         # For READ/DELETE, analyze filter fields only
         filters = parsed_query.get("filters", {})
-        fields_to_analyze = filters
-        field_source_type = {k: "filter" for k in filters.keys()}
+        filter_fields = sorted(_extract_filter_fields(filters))
+        fields_to_analyze = {k: None for k in filter_fields}
+        field_source_type = {k: "filter" for k in filter_fields}
         print(f"\n[ANALYZE] Operation: {operation}")
-        print(f"[ANALYZE] Analyzing FILTER fields ({len(filters)} fields)")
+        print(f"[ANALYZE] Analyzing FILTER fields ({len(filter_fields)} fields)")
     
     # If no fields to analyze, query all databases for safety
     if not fields_to_analyze:

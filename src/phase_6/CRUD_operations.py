@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 from src.config import (
     DATA_DIR,
@@ -66,6 +67,308 @@ def refresh_connections():
 refresh_connections()
 
 tx_coordinator = TransactionCoordinator(TRANSACTION_LOG_FILE)
+
+_FILTER_LOGIC_KEYS = {"$and", "$or", "$not"}
+_FILTER_COMPARISON_OPS = {
+    "$eq",
+    "$ne",
+    "$gt",
+    "$gte",
+    "$lt",
+    "$lte",
+    "$in",
+    "$nin",
+    "$contains",
+    "$starts_with",
+    "$ends_with",
+    "$regex",
+    "$exists",
+}
+
+
+def _normalize_type_name(raw_type):
+    if raw_type is None:
+        return "unknown"
+
+    name = str(raw_type).strip().lower()
+    if name in {"int", "integer", "long", "short"}:
+        return "integer"
+    if name in {"float", "double", "decimal", "number"}:
+        return "float"
+    if name in {"bool", "boolean"}:
+        return "boolean"
+    if name in {"str", "string", "text", "varchar", "char"}:
+        return "string"
+
+    return "string"
+
+
+def _load_field_type_map():
+    field_types = {"record_id": "integer"}
+    try:
+        with open(METADATA_FILE, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+    except Exception:
+        return field_types
+
+    for field in metadata.get("fields", []):
+        field_name = field.get("field_name")
+        if not field_name:
+            continue
+        user_type = (field.get("user_constraints") or {}).get("user_type")
+        dominant_type = field.get("dominant_type")
+        field_types[field_name] = _normalize_type_name(user_type or dominant_type)
+
+    return field_types
+
+
+def _parse_scalar_for_type(value, field_type):
+    if value is None:
+        return None
+
+    if field_type == "integer":
+        if isinstance(value, bool):
+            raise ValueError("boolean is not valid for integer comparison")
+        return int(value)
+
+    if field_type == "float":
+        if isinstance(value, bool):
+            raise ValueError("boolean is not valid for numeric comparison")
+        return float(value)
+
+    if field_type == "boolean":
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"true", "1", "yes"}:
+                return True
+            if lowered in {"false", "0", "no"}:
+                return False
+        raise ValueError(f"invalid boolean value: {value}")
+
+    return value
+
+
+def _parse_operator_shorthand(raw_value):
+    if not isinstance(raw_value, str):
+        return None
+
+    match = re.match(r"^\s*(<=|>=|!=|=|<|>)\s*(.+?)\s*$", raw_value)
+    if not match:
+        return None
+
+    symbol, rhs = match.groups()
+    op_map = {
+        "=": "$eq",
+        "!=": "$ne",
+        ">": "$gt",
+        ">=": "$gte",
+        "<": "$lt",
+        "<=": "$lte",
+    }
+    return op_map[symbol], rhs
+
+
+def _coerce_predicate_value(op, value, field_type, field_name):
+    if op in {"$in", "$nin"}:
+        if not isinstance(value, list):
+            raise ValueError(f"Operator '{op}' for field '{field_name}' requires a list value")
+        return [_parse_scalar_for_type(v, field_type) for v in value]
+
+    if op == "$exists":
+        if not isinstance(value, bool):
+            raise ValueError(f"Operator '$exists' for field '{field_name}' requires true/false")
+        return value
+
+    if op in {"$contains", "$starts_with", "$ends_with", "$regex"}:
+        if not isinstance(value, str):
+            raise ValueError(f"Operator '{op}' for field '{field_name}' requires a string value")
+        return value
+
+    if op in {"$gt", "$gte", "$lt", "$lte"}:
+        return _parse_scalar_for_type(value, field_type)
+
+    if op in {"$eq", "$ne"}:
+        return _parse_scalar_for_type(value, field_type)
+
+    return value
+
+
+def _normalize_field_condition(field_name, raw_condition, field_types):
+    field_type = field_types.get(field_name, "string")
+
+    if isinstance(raw_condition, dict):
+        if not raw_condition:
+            raise ValueError(f"Field '{field_name}' has an empty operator object")
+
+        predicates = []
+        for op, value in raw_condition.items():
+            if op not in _FILTER_COMPARISON_OPS:
+                raise ValueError(f"Unsupported operator '{op}' for field '{field_name}'")
+
+            if op in {"$contains", "$starts_with", "$ends_with", "$regex"} and field_type != "string":
+                raise ValueError(f"Operator '{op}' is only valid for string fields (field: '{field_name}')")
+
+            if op in {"$gt", "$gte", "$lt", "$lte"} and field_type not in {"integer", "float"}:
+                raise ValueError(f"Operator '{op}' is only valid for numeric fields (field: '{field_name}')")
+
+            coerced = _coerce_predicate_value(op, value, field_type, field_name)
+            predicates.append({"kind": "predicate", "field": field_name, "op": op, "value": coerced})
+
+        if len(predicates) == 1:
+            return predicates[0]
+        return {"kind": "logic", "op": "$and", "children": predicates}
+
+    shorthand = _parse_operator_shorthand(raw_condition)
+    if shorthand:
+        op, rhs = shorthand
+        if field_type not in {"integer", "float"}:
+            raise ValueError(
+                f"Shorthand operator '{raw_condition}' is only valid for numeric fields (field: '{field_name}')"
+            )
+        coerced = _coerce_predicate_value(op, rhs, field_type, field_name)
+        return {"kind": "predicate", "field": field_name, "op": op, "value": coerced}
+
+    coerced = _coerce_predicate_value("$eq", raw_condition, field_type, field_name)
+    return {"kind": "predicate", "field": field_name, "op": "$eq", "value": coerced}
+
+
+def _normalize_filter_tree(filters, field_types):
+    if not filters:
+        return {"kind": "logic", "op": "$and", "children": []}
+
+    if not isinstance(filters, dict):
+        raise ValueError("Field 'filters' must be an object")
+
+    logic_keys = [k for k in filters if k in _FILTER_LOGIC_KEYS]
+    field_keys = [k for k in filters if k not in _FILTER_LOGIC_KEYS]
+
+    if logic_keys and field_keys:
+        raise ValueError("Do not mix logical operators ($and/$or/$not) with direct field filters at the same level")
+
+    if logic_keys:
+        if len(logic_keys) != 1:
+            raise ValueError("Only one logical operator is allowed per object level")
+
+        logic_key = logic_keys[0]
+        value = filters[logic_key]
+
+        if logic_key in {"$and", "$or"}:
+            if not isinstance(value, list) or not value:
+                raise ValueError(f"'{logic_key}' must be a non-empty array of filter objects")
+            children = [_normalize_filter_tree(item, field_types) for item in value]
+            return {"kind": "logic", "op": logic_key, "children": children}
+
+        if not isinstance(value, dict):
+            raise ValueError("'$not' must contain one filter object")
+        child = _normalize_filter_tree(value, field_types)
+        return {"kind": "logic", "op": "$not", "children": [child]}
+
+    children = []
+    for field_name, raw_condition in filters.items():
+        if str(field_name).startswith("$"):
+            raise ValueError(f"Unsupported logical operator '{field_name}'")
+        children.append(_normalize_field_condition(field_name, raw_condition, field_types))
+
+    if len(children) == 1:
+        return children[0]
+    return {"kind": "logic", "op": "$and", "children": children}
+
+
+def _is_simple_equality_filters(filters):
+    if not filters:
+        return True
+    if not isinstance(filters, dict):
+        return False
+
+    for key, value in filters.items():
+        if str(key).startswith("$"):
+            return False
+        if isinstance(value, dict):
+            return False
+        if _parse_operator_shorthand(value):
+            return False
+
+    return True
+
+
+def _to_float(value):
+    if isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _evaluate_predicate(record, predicate):
+    field_name = predicate["field"]
+    op = predicate["op"]
+    expected = predicate["value"]
+
+    field_exists = field_name in record
+    actual = record.get(field_name)
+
+    if op == "$exists":
+        return field_exists and actual is not None if expected else (not field_exists or actual is None)
+    if op == "$eq":
+        return actual == expected
+    if op == "$ne":
+        return actual != expected
+
+    if op in {"$gt", "$gte", "$lt", "$lte"}:
+        left = _to_float(actual)
+        right = _to_float(expected)
+        if left is None or right is None:
+            return False
+        if op == "$gt":
+            return left > right
+        if op == "$gte":
+            return left >= right
+        if op == "$lt":
+            return left < right
+        return left <= right
+
+    if op == "$in":
+        return actual in expected
+    if op == "$nin":
+        return actual not in expected
+
+    if op in {"$contains", "$starts_with", "$ends_with", "$regex"}:
+        if actual is None:
+            return False
+        actual_text = str(actual)
+        if op == "$contains":
+            return expected in actual_text
+        if op == "$starts_with":
+            return actual_text.startswith(expected)
+        if op == "$ends_with":
+            return actual_text.endswith(expected)
+        try:
+            return re.search(expected, actual_text) is not None
+        except re.error:
+            return False
+
+    return False
+
+
+def _record_matches_filter_ast(record, filter_ast):
+    kind = filter_ast.get("kind")
+    if kind == "predicate":
+        return _evaluate_predicate(record, filter_ast)
+
+    op = filter_ast.get("op")
+    children = filter_ast.get("children", [])
+
+    if op == "$and":
+        return all(_record_matches_filter_ast(record, child) for child in children)
+    if op == "$or":
+        return any(_record_matches_filter_ast(record, child) for child in children)
+    if op == "$not":
+        return not _record_matches_filter_ast(record, children[0]) if children else True
+
+    return False
 
 def merge_results_by_record_id(results_by_db):
     """
@@ -254,6 +557,17 @@ def read_operation(parsed_query, db_analysis):
     columns = parsed_query.get("columns")  # Column selection
     databases_needed = db_analysis.get("databases_needed", [])
     field_locations = db_analysis.get("field_locations", {})
+
+    field_types = _load_field_type_map()
+    try:
+        filter_ast = _normalize_filter_tree(filters, field_types)
+    except ValueError as ve:
+        return {
+            "operation": "READ",
+            "entity": entity,
+            "status": "failed",
+            "error": f"Invalid filters: {ve}",
+        }
     
     print(f"\n[DEBUG] Entity: {entity}, Filters: {filters}, Databases: {databases_needed}")
     
@@ -265,10 +579,15 @@ def read_operation(parsed_query, db_analysis):
     print(f"{'─'*60}")
     
     matching_record_ids = {}
-    no_filters = not filters
+    has_filters = bool(filters)
+    simple_eq_filters = _is_simple_equality_filters(filters)
+    force_full_scan = has_filters and not simple_eq_filters
+    no_filters = not has_filters or force_full_scan
 
-    if no_filters:
+    if no_filters and not has_filters:
         print("[PHASE 1] No filters provided — skipping ID lookup, will fetch all records directly.")
+    elif no_filters and force_full_scan:
+        print("[PHASE 1] Advanced filters detected — using safe full-scan fetch before in-memory filter evaluation.")
     else:
         if "SQL" in databases_needed and sql_available:
             try:
@@ -413,6 +732,15 @@ def read_operation(parsed_query, db_analysis):
     
     merged_results = merge_results_by_record_id(results)
     merged_results = _hydrate_missing_fields(merged_results)
+
+    if has_filters:
+        before_filter_count = len(merged_results)
+        merged_results = {
+            rid: record
+            for rid, record in merged_results.items()
+            if _record_matches_filter_ast(record, filter_ast)
+        }
+        print(f"[MERGE] Filtered records: {before_filter_count} -> {len(merged_results)}")
     
     # Filter columns if specified
     if columns:
