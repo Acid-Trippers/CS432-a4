@@ -112,7 +112,7 @@ async def run_initialise(request: Request, count: int = Query(default=1000, ge=0
     try:
         _dispose_shared_sql_engine(request)
 
-        main_module = importlib.import_module("main")
+        main_module = importlib.import_module("legacy.main")
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, lambda: main_module.initialise(count))
 
@@ -141,7 +141,7 @@ async def run_fetch(request: Request, count: int = Query(default=100, ge=0)):
     try:
         _dispose_shared_sql_engine(request)
 
-        main_module = importlib.import_module("main")
+        main_module = importlib.import_module("legacy.main")
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, lambda: main_module.fetch(count))
 
@@ -172,7 +172,7 @@ async def reset_everything(request: Request, wipe_schema: bool = Query(default=F
         _dispose_shared_sql_engine(request)
 
         print("[RESET] Starting clean_databases in executor...", flush=True)
-        main_module = importlib.import_module("main")
+        main_module = importlib.import_module("legacy.main")
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, main_module.clean_databases)
         print("[RESET] clean_databases finished.", flush=True)
