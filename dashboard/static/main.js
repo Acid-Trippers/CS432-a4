@@ -1025,7 +1025,6 @@ function renderDashboardStatsBundle(
   status,
   stats,
   pipelineStats,
-  developerStats = null,
 ) {
   // Update SQL and NoSQL connection indicators
   const sqlDot = document.getElementById("sql-status-dot");
@@ -1080,15 +1079,6 @@ async function refreshDashboardStats() {
       apiGet("/api/stats"),
       apiGet("/api/pipeline/stats"),
     ]);
-
-    let developerStats = null;
-    if (developerModeEnabled) {
-      try {
-        developerStats = await apiGet("/api/developer/metrics");
-      } catch {
-        developerStats = null;
-      }
-    }
 
     const stateLabel = document.getElementById("dashboard-state");
     if (stateLabel)
@@ -1777,6 +1767,7 @@ function renderDeveloperOverviewCards(payload) {
   const latestQuery = payload?.latest_query || {};
   const logicalQueryTests = payload?.logical_query_tests || {};
   const actualQuery = payload?.actual_query || {};
+  const storageDistribution = payload?.storage_distribution || {};
   const workflowPerf = payload?.workflow_performance || {};
   const initMetrics = workflowPerf?.initialize || {};
   const fetchMetrics = workflowPerf?.fetch || {};
@@ -1872,6 +1863,16 @@ function renderDeveloperOverviewCards(payload) {
     "kpi-dev-actual-query-latency",
     formatLatencyOrNotRun(actualQuery.latency_ms),
     actualQuery.has_run ? "Latency of latest actual query" : testNotRunText,
+  );
+  setKpiCardContent(
+    "kpi-dev-sql-pct",
+    `${Number(storageDistribution.sql_percentage || 0).toFixed(1)}%`,
+    `SQL share (${formatInteger(storageDistribution.sql_field_count || 0)} fields)`,
+  );
+  setKpiCardContent(
+    "kpi-dev-mongo-pct",
+    `${Number(storageDistribution.mongo_percentage || 0).toFixed(1)}%`,
+    `Mongo share (${formatInteger(storageDistribution.mongo_field_count || 0)} fields)`,
   );
 }
 

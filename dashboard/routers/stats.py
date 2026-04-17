@@ -480,10 +480,12 @@ async def get_pipeline_stats(request: Request):
 @router.get("/api/developer/metrics")
 async def get_developer_metrics(request: Request):
     """Developer-only metrics payload for dashboard diagnostics and performance reports."""
+    fields = _load_metadata_fields()
     return {
         "latest_query": _load_latest_query_metrics(),
         "logical_query_tests": _load_logical_query_test_metrics(),
         "actual_query": _load_actual_query_overview(),
+        "storage_distribution": _compute_storage_distribution(fields),
         "performance_reports": _load_performance_report_summaries(),
         "workflow_performance": _load_workflow_performance_metrics(),
         "transactions": _compute_transaction_stats(),
