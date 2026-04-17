@@ -1,7 +1,7 @@
 let busyPollTimer = null;
 let dashboardStatsTimer = null;
 let lastQueryResult = null;
-let lastRequestedColumns = null;  // Store requested columns
+let lastRequestedColumns = null; // Store requested columns
 let currentQueryPage = 1;
 let currentColumnSortMode = "frequency";
 let currentRowSortColumn = "";
@@ -78,7 +78,6 @@ const BASIC_ACID_TESTS = [
 
 const ADVANCED_ACID_TESTS = [
   "multi_record_atomicity",
-  "cross_db_atomicity",
   "not_null_constraint",
   "schema_validation",
   "dirty_read_prevention",
@@ -93,9 +92,9 @@ const ADVANCED_ACID_TESTS = [
 const ACID_TEST_DETAILS = {
   atomicity: {
     performed:
-      "Triggered a cross-database failure scenario and verified rollback behavior.",
+      "Ran two sub-checks: (1) normal create commits to SQL+Mongo, (2) forced cross-database failure triggers rollback/compensation.",
     passCriteria:
-      "No partial write should remain and transaction state should indicate rollback.",
+      "Passes only when both sub-checks are true: success_holds=true and rollback_holds=true.",
   },
   consistency: {
     performed:
@@ -117,12 +116,6 @@ const ACID_TEST_DETAILS = {
     performed:
       "Inserted multiple records in one transaction and validated all-or-nothing behavior.",
     passCriteria: "Expected full commit of all records or complete rollback.",
-  },
-  cross_db_atomicity: {
-    performed:
-      "Validated success and forced-failure paths across SQL and Mongo in a single transaction flow.",
-    passCriteria:
-      "Success path must commit in both stores; failure path must roll back consistently.",
   },
   not_null_constraint: {
     performed: "Attempted inserts violating required-field constraints.",
@@ -219,8 +212,50 @@ function buildAcidSummary(testName, payload, isError = false) {
     return lines.join("\n");
   }
 
+  if (Array.isArray(payload?.tests_run) && payload.tests_run.length > 0) {
+    lines.push("");
+    lines.push("Checks Executed:");
+    payload.tests_run.forEach((entry, idx) => {
+      lines.push(`- ${idx + 1}. ${humanizeAcidLabel(entry)}`);
+    });
+  }
+
+  if (
+    payload?.decision_metrics &&
+    typeof payload.decision_metrics === "object"
+  ) {
+    lines.push("");
+    lines.push("Quantitative Evidence Used:");
+    const metricEntries = Object.entries(payload.decision_metrics);
+    const noteEntry = metricEntries.find(([key]) => key === "note");
+    const regularEntries = metricEntries.filter(([key]) => key !== "note");
+
+    regularEntries.slice(0, 8).forEach(([key, value]) => {
+      lines.push(
+        `- ${humanizeAcidLabel(key)}: ${formatAcidMetricValue(value)}`,
+      );
+    });
+
+    if (noteEntry) {
+      lines.push(`- Note: ${formatAcidMetricValue(noteEntry[1])}`);
+    }
+  }
+
+  if (payload?.decision_rule) {
+    lines.push("");
+    lines.push(`Decision Rule: ${payload.decision_rule}`);
+  }
+
   const evidenceEntries = Object.entries(payload || {}).filter(
-    ([key]) => !["test", "passed", "error"].includes(key),
+    ([key]) =>
+      ![
+        "test",
+        "passed",
+        "error",
+        "tests_run",
+        "decision_metrics",
+        "decision_rule",
+      ].includes(key),
   );
 
   lines.push("");
@@ -389,7 +424,7 @@ async function apiPost(url, body = null) {
 }
 
 function getResetEndpointUrl(wipeSchema) {
-  return `/api/pipeline/reset?wipe_schema=${wipeSchema ? 'true' : 'false'}`;
+  return `/api/pipeline/reset?wipe_schema=${wipeSchema ? "true" : "false"}`;
 }
 
 function showResetConfirmation() {
@@ -399,8 +434,15 @@ function showResetConfirmation() {
     const cancelBtn = document.getElementById("btn-reset-cancel");
     const wipeCheck = document.getElementById("wipe-schema-check");
 
-    if (!dialog || typeof dialog.showModal !== "function" || !confirmBtn || !cancelBtn) {
-      const confirmed = window.confirm("Reset everything? This clears SQL and Mongo data.");
+    if (
+      !dialog ||
+      typeof dialog.showModal !== "function" ||
+      !confirmBtn ||
+      !cancelBtn
+    ) {
+      const confirmed = window.confirm(
+        "Reset everything? This clears SQL and Mongo data.",
+      );
       resolve({ confirmed, wipeSchema: false });
       return;
     }
@@ -416,7 +458,8 @@ function showResetConfirmation() {
       resolve(result);
     };
 
-    const onConfirm = () => finalize({ confirmed: true, wipeSchema: !!wipeCheck?.checked });
+    const onConfirm = () =>
+      finalize({ confirmed: true, wipeSchema: !!wipeCheck?.checked });
     const onCancel = () => finalize({ confirmed: false, wipeSchema: false });
     const onClose = () => finalize({ confirmed: false, wipeSchema: false });
 
@@ -576,7 +619,12 @@ function attachLandingHandlers() {
 
       try {
         await apiPost(getResetEndpointUrl(wipeSchema));
-        setFeedback(feedback, wipeSchema ? "Reset completed. Pipeline is fresh." : "Reset completed. Pipeline is schema ready.");
+        setFeedback(
+          feedback,
+          wipeSchema
+            ? "Reset completed. Pipeline is fresh."
+            : "Reset completed. Pipeline is schema ready.",
+        );
         await refreshLanding();
       } catch (error) {
         setFeedback(feedback, String(error.message || error), true);
@@ -676,9 +724,11 @@ function setDashboardControlsDisabled(disabled) {
     if (control) control.disabled = disabled;
   });
 
-  document.querySelectorAll(".run-acid-btn, .run-advanced-acid-btn").forEach((button) => {
-    button.disabled = disabled;
-  });
+  document
+    .querySelectorAll(".run-acid-btn, .run-advanced-acid-btn")
+    .forEach((button) => {
+      button.disabled = disabled;
+    });
 }
 
 function formatInteger(num) {
@@ -694,7 +744,9 @@ function formatPercent(value) {
 }
 
 function titleCase(str) {
-  return String(str || "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  return String(str || "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function formatRelativeTime(isoRaw) {
@@ -704,8 +756,8 @@ function formatRelativeTime(isoRaw) {
     if (isNaN(d.getTime())) return "Invalid date";
     const diff = Math.floor((new Date() - d) / 1000);
     if (diff < 60) return `${diff}s ago`;
-    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
-    return `${Math.floor(diff/3600)}h ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    return `${Math.floor(diff / 3600)}h ago`;
   } catch {
     return "Unknown";
   }
@@ -729,8 +781,10 @@ function setStatsRefreshedAt(variant = "success") {
 }
 
 function getSystemStatusPresentation(status) {
-  if (status.pipeline_state !== "initialized") return { message: "System initializing", variant: "warning" };
-  if (status.pipeline_busy) return { message: "Pipeline busy", variant: "busy" };
+  if (status.pipeline_state !== "initialized")
+    return { message: "System initializing", variant: "warning" };
+  if (status.pipeline_busy)
+    return { message: "Pipeline busy", variant: "busy" };
   return { message: "Online and ready", variant: "online" };
 }
 
@@ -751,13 +805,15 @@ function updateFieldSortButtonState() {
 }
 
 function getVisibleFieldDetailsRows() {
-  const filtered = fieldDetailsRows.filter(r => fieldDetailsFilter === "all" || r.status === fieldDetailsFilter);
+  const filtered = fieldDetailsRows.filter(
+    (r) => fieldDetailsFilter === "all" || r.status === fieldDetailsFilter,
+  );
   return filtered.sort((a, b) => {
     let va = a[fieldDetailsSortKey];
     let vb = b[fieldDetailsSortKey];
     if (typeof va === "string") va = va.toLowerCase();
     if (typeof vb === "string") vb = vb.toLowerCase();
-    
+
     if (va < vb) return fieldDetailsSortDirection === "asc" ? -1 : 1;
     if (va > vb) return fieldDetailsSortDirection === "asc" ? 1 : -1;
     return 0;
@@ -772,28 +828,32 @@ function renderFieldDetailsTable() {
     tbody.innerHTML = `<tr><td colspan="4" class="meta-text" style="text-align: center;">No fields match the current filter.</td></tr>`;
     return;
   }
-  tbody.innerHTML = rows.map(r => `
+  tbody.innerHTML = rows
+    .map(
+      (r) => `
     <tr>
       <td>${escapeHtml(r.field_name)}</td>
       <td>${escapeHtml(r.status)}</td>
       <td>${formatInteger(r.frequency)}</td>
       <td>${formatPercent(r.density)}</td>
     </tr>
-  `).join("");
+  `,
+    )
+    .join("");
 }
 
 function setKpiCardContent(id, value, subtitle, statusValue = null) {
   const card = document.getElementById(id);
   if (!card) return;
-  
+
   let html = `<span class="kpi-label">${escapeHtml(card.getAttribute("data-label") || titleCase(id.replace("kpi-", "")))}</span>`;
   html += `<span class="kpi-value">${escapeHtml(value)}</span>`;
   html += `<span class="kpi-subtitle">${escapeHtml(subtitle)}</span>`;
-  
+
   if (statusValue) {
     html += `<span class="kpi-status-value">${escapeHtml(statusValue)}</span>`;
   }
-  
+
   card.innerHTML = html;
 }
 
@@ -803,24 +863,44 @@ function renderDashboardStatsBundle(status, stats, pipelineStats) {
   if (sqlDot) {
     setDotState(sqlDot, status.sql_connected || false);
   }
-  
+
   const mongoDot = document.getElementById("mongo-status-dot");
   if (mongoDot) {
     setDotState(mongoDot, status.mongo_connected || false);
   }
-  
-  setKpiCardContent("kpi-total-records", formatInteger(pipelineStats?.total_records), "Total stored records");
-  setKpiCardContent("kpi-active-fields", formatInteger(pipelineStats?.active_fields?.total), "Fields actively tracked");
-  setKpiCardContent("kpi-data-density", formatPercent(pipelineStats?.data_density), "Average field density");
-  
+
+  setKpiCardContent(
+    "kpi-total-records",
+    formatInteger(pipelineStats?.total_records),
+    "Total stored records",
+  );
+  setKpiCardContent(
+    "kpi-active-fields",
+    formatInteger(pipelineStats?.active_fields?.total),
+    "Fields actively tracked",
+  );
+  setKpiCardContent(
+    "kpi-data-density",
+    formatPercent(pipelineStats?.data_density),
+    "Average field density",
+  );
+
   const fetchedCount = formatInteger(pipelineStats?.last_fetch?.count);
   const fetchedWhen = formatRelativeTime(pipelineStats?.last_fetch?.timestamp);
-  setKpiCardContent("kpi-last-fetch", fetchedWhen, `Fetched ${fetchedCount} records`);
-  
+  setKpiCardContent(
+    "kpi-last-fetch",
+    fetchedWhen,
+    `Fetched ${fetchedCount} records`,
+  );
+
   const txTotal = formatInteger(pipelineStats?.transactions?.total);
   setKpiCardContent("kpi-transactions", txTotal, "Total operations");
-  
-  setKpiCardContent("kpi-active-fields-breakdown", formatInteger(pipelineStats?.active_fields?.defined), "Defined fields");
+
+  setKpiCardContent(
+    "kpi-active-fields-breakdown",
+    formatInteger(pipelineStats?.active_fields?.defined),
+    "Defined fields",
+  );
 }
 
 async function refreshDashboardStats() {
@@ -833,26 +913,39 @@ async function refreshDashboardStats() {
     ]);
 
     const stateLabel = document.getElementById("dashboard-state");
-    if (stateLabel) stateLabel.textContent = normalizeState(status.pipeline_state);
+    if (stateLabel)
+      stateLabel.textContent = normalizeState(status.pipeline_state);
 
     if (status.pipeline_state !== "initialized") {
-      setFeedback(feedback, "Pipeline is not initialized anymore. Redirecting to landing...", true);
-      setTimeout(() => window.location.href = "/", 1200);
+      setFeedback(
+        feedback,
+        "Pipeline is not initialized anymore. Redirecting to landing...",
+        true,
+      );
+      setTimeout(() => (window.location.href = "/"), 1200);
       return;
     }
-    
+
     if (status.pipeline_busy) {
       setDashboardControlsDisabled(true);
-      setFeedback(feedback, "Pipeline is busy. Controls are temporarily locked.", "warn");
+      setFeedback(
+        feedback,
+        "Pipeline is busy. Controls are temporarily locked.",
+        "warn",
+      );
     } else {
       clearFeedback(feedback);
       setDashboardControlsDisabled(false);
     }
-    
+
     renderDashboardStatsBundle(status, stats, pipelineStats);
     setStatsRefreshedAt("success");
   } catch (error) {
-    setFeedback(feedback, `Stats refresh failed: ${String(error.message || error)}`, true);
+    setFeedback(
+      feedback,
+      `Stats refresh failed: ${String(error.message || error)}`,
+      true,
+    );
     setStatsRefreshedAt("error");
   }
 }
@@ -1042,9 +1135,15 @@ function renderReadTable(result, page = 1) {
 
   // Filter to only requested columns if specified
   let filteredColumns = columns;
-  if (lastRequestedColumns && Array.isArray(lastRequestedColumns) && lastRequestedColumns.length > 0) {
+  if (
+    lastRequestedColumns &&
+    Array.isArray(lastRequestedColumns) &&
+    lastRequestedColumns.length > 0
+  ) {
     const requestedSet = new Set(lastRequestedColumns);
-    filteredColumns = columns.filter(col => requestedSet.has(col) || col === 'record_id');
+    filteredColumns = columns.filter(
+      (col) => requestedSet.has(col) || col === "record_id",
+    );
   }
 
   populateRowSortOptions(filteredColumns);
@@ -1456,8 +1555,14 @@ function attachDashboardHandlers() {
 
       try {
         await apiPost(getResetEndpointUrl(wipeSchema));
-        setFeedback(feedback, wipeSchema ? "Reset completed. Schema wiped. Redirecting..." : "Reset completed. Schema preserved. Redirecting...", false);
-        setTimeout(() => window.location.href = "/", 900);
+        setFeedback(
+          feedback,
+          wipeSchema
+            ? "Reset completed. Schema wiped. Redirecting..."
+            : "Reset completed. Schema preserved. Redirecting...",
+          false,
+        );
+        setTimeout(() => (window.location.href = "/"), 900);
       } catch (error) {
         setFeedback(feedback, String(error.message || error), true);
         await refreshDashboardStats();
@@ -1500,7 +1605,8 @@ function attachDashboardHandlers() {
     btn.addEventListener("click", () => {
       const key = btn.getAttribute("data-sort-key");
       if (fieldDetailsSortKey === key) {
-        fieldDetailsSortDirection = fieldDetailsSortDirection === "asc" ? "desc" : "asc";
+        fieldDetailsSortDirection =
+          fieldDetailsSortDirection === "asc" ? "desc" : "asc";
       } else {
         fieldDetailsSortKey = key;
         fieldDetailsSortDirection = "asc";
@@ -1555,7 +1661,7 @@ function attachDashboardHandlers() {
       try {
         const result = await apiPost("/api/query", payload);
         lastQueryResult = result;
-        lastRequestedColumns = payload.columns || null;  // Store requested columns
+        lastRequestedColumns = payload.columns || null; // Store requested columns
         renderQueryResult(result);
         await refreshDashboardStats();
         if (downloadButton) downloadButton.disabled = false;
