@@ -12,7 +12,7 @@ import sys
 import socket
 import subprocess
 import time
-import project_config
+import legacy.project_config as project_config
 
 
 def wait_for_port(port, host='localhost', timeout=30):

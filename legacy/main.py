@@ -9,7 +9,7 @@ import sys
 import time
 import httpx
 
-import project_config
+import legacy.project_config as project_config
 from src.config import *
 
 # Suppress noisy logs from SQLAlchemy and pymongo when DBs are not reachable
