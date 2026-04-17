@@ -117,7 +117,7 @@ def compensate_mongo_batch(record_ids):
 def run_storage_with_safety(batch_record_ids, context):
     """
     Run SQL then Mongo storage for one logical batch and compensate on failure.
-    Returns ((sql_success, sql_fail), (mongo_success, mongo_fail)).
+    Returns ((sql_success, sql_fail, sql_elapsed), (mongo_success, mongo_fail, mongo_elapsed)).
     """
     print("[*] Starting SQL Pipeline...", flush=True)
     start_time = time.time()
@@ -170,7 +170,7 @@ def run_storage_with_safety(batch_record_ids, context):
             f"sql_comp_deleted={sql_comp.get('deleted')}, mongo_comp_deleted={mongo_comp.get('deleted')}"
         )
 
-    return (sql_success, sql_fail), (mongo_success, mongo_fail)
+    return (sql_success, sql_fail, sql_elapsed), (mongo_success, mongo_fail, mongo_elapsed)
 
 
 def start_api():
@@ -384,13 +384,20 @@ def initialise(count=1000):
     
     print("\n[STAGE] Running storage pipeline (SQL + MongoDB)...", flush=True)
     stage_start = time.time()
-    run_storage_with_safety(
+    (sql_success, sql_fail, sql_elapsed), (mongo_success, mongo_fail, mongo_elapsed) = run_storage_with_safety(
         batch_record_ids,
         {"pipeline": "initialise", "requested_count": count},
     )
     set_checkpoint("sql", count=count)
     set_checkpoint("mongo", count=count)
-    print(f"[+] Storage pipeline completed in {time.time() - stage_start:.2f}s", flush=True)
+    backend_completion_ms = (max(sql_elapsed, mongo_elapsed) * 1000)  # Store max of both in ms
+    print(f"[+] Storage pipeline completed in {time.time() - stage_start:.2f}s (SQL: {sql_elapsed:.2f}s, Mongo: {mongo_elapsed:.2f}s, Max: {backend_completion_ms:.1f}ms)", flush=True)
+    
+    # Store backend completion time for metrics
+    backend_metrics = {"backend_completion_ms": round(backend_completion_ms, 3)}
+    checkpoint_path = os.path.join(DATA_DIR, "pipeline_backend_metrics.json")
+    with open(checkpoint_path, 'w') as f:
+        json.dump(backend_metrics, f, indent=2)
     
     total_elapsed = time.time() - start_time
     print("\n" + "="*80, flush=True)
@@ -405,6 +412,9 @@ def fetch(count=100):
 
     batch_size = 100
     remaining = count
+    max_backend_time = 0  # Track max backend time across batches
+    total_backend_time = 0  # Track cumulative backend time
+    batch_count = 0
     print(f"[*] Starting Batch-Fetch for {count} records...")
 
     while remaining > 0:
@@ -439,7 +449,7 @@ def fetch(count=100):
             batch_record_ids = [r.get("record_id") for r in cleaned_batch if r.get("record_id") is not None]
 
             # 5 + 6. Coordinated SQL+Mongo storage with compensation
-            run_storage_with_safety(
+            (sql_success, sql_fail, sql_elapsed), (mongo_success, mongo_fail, mongo_elapsed) = run_storage_with_safety(
                 batch_record_ids,
                 {
                     "pipeline": "fetch",
@@ -448,6 +458,11 @@ def fetch(count=100):
                     "remaining_before_batch": remaining,
                 },
             )
+            backend_time_ms = max(sql_elapsed, mongo_elapsed) * 1000
+            max_backend_time = max(max_backend_time, backend_time_ms)
+            total_backend_time += backend_time_ms
+            batch_count += 1
+            
             set_checkpoint("sql", count=count)
             set_checkpoint("mongo", count=count)
 
@@ -466,6 +481,17 @@ def fetch(count=100):
             print(f"[X] Fetch batch failed: {e}")
             print(f"[X] Failure logged to {PIPELINE_FAILURE_LOG_FILE}. Resolve issue and retry fetch.")
             raise
+
+    # Store backend completion time for metrics (average of all batches)
+    avg_backend_time_ms = (total_backend_time / batch_count) if batch_count > 0 else 0
+    backend_metrics = {
+        "backend_completion_ms": round(avg_backend_time_ms, 3),
+        "max_backend_time_ms": round(max_backend_time, 3),
+        "batch_count": batch_count,
+    }
+    checkpoint_path = os.path.join(DATA_DIR, "pipeline_backend_metrics.json")
+    with open(checkpoint_path, 'w') as f:
+        json.dump(backend_metrics, f, indent=2)
 
     print(f"[SUCCESS] Fetch complete.")
 
