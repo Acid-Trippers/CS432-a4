@@ -12,6 +12,7 @@ class QueryPayload(BaseModel):
     entity: str = Field(min_length=1)
     filters: Dict[str, Any] | None = None
     payload: Dict[str, Any] | None = None
+    columns: list | None = None  # Column selection support
 
     @model_validator(mode="after")
     def validate_operation_requirements(self):

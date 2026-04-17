@@ -26,6 +26,7 @@ def query_parser():
         entity = query.get("entity")        # employees, departments, etc.
         filters = query.get("filters")      # WHERE clause conditions
         payload = query.get("payload")      # Data to update (if UPDATE operation)
+        columns = query.get("columns")      # Specific columns to fetch
         
         # Print what we extracted
         print(f"\n--- PARSED QUERY ---")
@@ -34,12 +35,15 @@ def query_parser():
         print(f"Filters: {filters}")
         if payload:
             print(f"Payload: {payload}")
+        if columns:
+            print(f"Columns: {columns}")
         
         return {
             "operation": operation,
             "entity": entity,
             "filters": filters,
-            "payload": payload
+            "payload": payload,
+            "columns": columns
         }
         
     except FileNotFoundError:

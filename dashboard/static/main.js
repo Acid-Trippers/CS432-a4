@@ -1,6 +1,7 @@
 let busyPollTimer = null;
 let dashboardStatsTimer = null;
 let lastQueryResult = null;
+let lastRequestedColumns = null;  // Store requested columns
 let currentQueryPage = 1;
 let currentColumnSortMode = "frequency";
 let currentRowSortColumn = "";
@@ -1039,19 +1040,26 @@ function renderReadTable(result, page = 1) {
     currentColumnSortMode,
   );
 
-  populateRowSortOptions(columns);
+  // Filter to only requested columns if specified
+  let filteredColumns = columns;
+  if (lastRequestedColumns && Array.isArray(lastRequestedColumns) && lastRequestedColumns.length > 0) {
+    const requestedSet = new Set(lastRequestedColumns);
+    filteredColumns = columns.filter(col => requestedSet.has(col) || col === 'record_id');
+  }
+
+  populateRowSortOptions(filteredColumns);
 
   const sortedRecords = sortRecordsByColumn(records, currentRowSortColumn);
   const displayRecords = sortedRecords.slice(startIdx, startIdx + PAGE_SIZE);
 
-  if (!columns.length) {
+  if (!filteredColumns.length) {
     return '<p class="meta-text">Records were returned, but all visible fields are hidden in this view.</p>';
   }
 
   const from = startIdx + 1;
   const to = Math.min(startIdx + displayRecords.length, records.length);
 
-  const headerHtml = columns
+  const headerHtml = filteredColumns
     .map((col) => {
       const presentCount = columnFrequency.get(col) || 0;
       const title = `${col} (${presentCount}/${records.length} populated records)`;
@@ -1062,7 +1070,7 @@ function renderReadTable(result, page = 1) {
   const rowsHtml = displayRecords
     .map(
       (record) =>
-        `<tr>${columns
+        `<tr>${filteredColumns
           .map((col) => {
             const raw = record[col];
             const display = valueToCell(raw);
@@ -1091,7 +1099,7 @@ function renderReadTable(result, page = 1) {
   return `
 		<div class="result-table-meta">
 			<span>${from}–${to} of ${records.length} records</span>
-      <span>${columns.length} columns · sorted by ${getSortLabel(currentColumnSortMode)}</span>
+      <span>${filteredColumns.length} columns · sorted by ${getSortLabel(currentColumnSortMode)}</span>
 		</div>
 		<div class="result-table-wrap">
 			<table class="result-table">
@@ -1547,6 +1555,7 @@ function attachDashboardHandlers() {
       try {
         const result = await apiPost("/api/query", payload);
         lastQueryResult = result;
+        lastRequestedColumns = payload.columns || null;  // Store requested columns
         renderQueryResult(result);
         await refreshDashboardStats();
         if (downloadButton) downloadButton.disabled = false;

@@ -251,6 +251,7 @@ def read_operation(parsed_query, db_analysis):
     
     entity = parsed_query.get("entity")
     filters = parsed_query.get("filters", {})
+    columns = parsed_query.get("columns")  # Column selection
     databases_needed = db_analysis.get("databases_needed", [])
     field_locations = db_analysis.get("field_locations", {})
     
@@ -341,11 +342,15 @@ def read_operation(parsed_query, db_analysis):
                 if not no_filters and sql_ids:
                     query = query.filter(Model.record_id.in_(sql_ids))
                 records = query.all()
+                # Filter columns if specified (always include record_id)
+                cols_to_fetch = columns if columns else [col.name for col in sql_inspect(Model).columns]
+                if columns and "record_id" not in cols_to_fetch:
+                    cols_to_fetch = ["record_id"] + columns
                 results["SQL"] = [
-                    {col.name: getattr(record, col.name) for col in sql_inspect(Model).columns}
+                    {col.name: getattr(record, col.name) for col in sql_inspect(Model).columns if col.name in cols_to_fetch}
                     for record in records
                 ]
-                print(f"[SQL] Fetched {len(results['SQL'])} full records")
+                print(f"[SQL] Fetched {len(results['SQL'])} records with columns: {cols_to_fetch}")
         except Exception as e:
             print(f"[SQL] Error in Phase 2: {e}")
             results["SQL"] = []
@@ -360,11 +365,17 @@ def read_operation(parsed_query, db_analysis):
             collection = mongo_db[entity]
             query_filter = {} if no_filters else {"_id": {"$in": mongo_ids}}
             records = list(collection.find(query_filter))
-            results["MONGO"] = [
-                {"record_id": r["_id"], **{k: v for k, v in r.items() if k != "_id"}}
-                for r in records
-            ]
-            print(f"[MONGO] Fetched {len(results['MONGO'])} full documents")
+            # Filter columns if specified (always include _id/record_id)
+            cols_to_fetch = columns if columns else None
+            results["MONGO"] = []
+            for r in records:
+                if cols_to_fetch:
+                    filtered = {"record_id": r["_id"], **{k: v for k, v in r.items() if k != "_id" and k in cols_to_fetch}}
+                else:
+                    filtered = {"record_id": r["_id"], **{k: v for k, v in r.items() if k != "_id"}}
+                results["MONGO"].append(filtered)
+            cols_msg = columns if columns else "all"
+            print(f"[MONGO] Fetched {len(results['MONGO'])} documents with columns: {cols_msg}")
         except Exception as e:
             print(f"[MONGO] Error in Phase 2: {e}")
             results["MONGO"] = []
@@ -402,6 +413,15 @@ def read_operation(parsed_query, db_analysis):
     
     merged_results = merge_results_by_record_id(results)
     merged_results = _hydrate_missing_fields(merged_results)
+    
+    # Filter columns if specified
+    if columns:
+        filtered_merged = {}
+        for record_id, record in merged_results.items():
+            filtered_merged[record_id] = {k: v for k, v in record.items() if k in columns or k == "record_id"}
+        merged_results = filtered_merged
+        print(f"[MERGE] Filtered to columns: {columns}")
+    
     print(f"[MERGE] Merged {len(merged_results)} unique records")
     print(f"[MERGE] Sample keys: {list(merged_results.keys())[:5]}")
     
