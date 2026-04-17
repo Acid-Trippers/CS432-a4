@@ -20,6 +20,8 @@ QUERY_OUTPUT_FILE = os.path.join(DATA_DIR, "query_output.json")
 CHECKPOINT_FILE = os.path.join(DATA_DIR, "checkpoint.json")
 TRANSACTION_LOG_FILE = os.path.join(DATA_DIR, "transaction_log.json")
 PIPELINE_FAILURE_LOG_FILE = os.path.join(DATA_DIR, "pipeline_failures.json")
+SESSIONS_FILE = os.path.join(DATA_DIR, "sessions.json")
+SESSIONS_ARCHIVE_FILE = os.path.join(DATA_DIR, "sessions_archive.json")
 
 # Database configuration
 DATABASE_URL = os.environ.get("POSTGRES_URI", "postgresql://admin:secret@localhost:5432/cs432_db")

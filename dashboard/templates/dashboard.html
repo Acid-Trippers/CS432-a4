@@ -93,6 +93,41 @@
       <p id="dashboard-feedback" class="feedback hidden" role="status"></p>
 
       <section
+        class="dashboard-section status-card session-monitor-section"
+        aria-labelledby="session-monitor-title"
+      >
+        <div class="section-heading">
+          <h2 id="session-monitor-title">Active Sessions</h2>
+          <span id="session-monitor-refreshed" class="meta-text"
+            >Awaiting refresh...</span
+          >
+        </div>
+        <div class="session-monitor-meta">
+          <span id="session-monitor-counts" class="meta-text">Total: 0 · Active: 0 · Archived: 0</span>
+          <span id="session-monitor-self" class="meta-text">Current Session: -</span>
+        </div>
+        <div class="result-table-wrap session-table-wrap">
+          <table class="result-table session-table">
+            <thead>
+              <tr>
+                <th>Session</th>
+                <th>Status</th>
+                <th>Last Active</th>
+                <th>Queries</th>
+                <th>Transactions</th>
+                <th>History</th>
+              </tr>
+            </thead>
+            <tbody id="session-monitor-body">
+              <tr>
+                <td colspan="6" class="meta-text">No sessions yet.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section
         class="dashboard-section status-card"
         aria-labelledby="stats-title"
       >

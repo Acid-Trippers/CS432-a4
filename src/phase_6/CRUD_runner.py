@@ -177,7 +177,7 @@ def analyze_query_databases(parsed_query):
         "databases_needed": list(databases_needed)
     }
     
-def query_runner(query_dict=None, persist_output=True):
+def query_runner(query_dict=None, persist_output=True, session_id=None, session_manager=None):
     """
     Execute a CRUD query.
 
@@ -191,6 +191,13 @@ def query_runner(query_dict=None, persist_output=True):
     
     run_start = time.perf_counter()
     started_at = time.time()
+    query_log_id = None
+
+    if session_manager is not None and session_id:
+        try:
+            query_log_id = session_manager.log_query_start(session_id, parsed_query)
+        except Exception:
+            query_log_id = None
 
     db_analysis = analyze_query_databases(parsed_query)
     
@@ -253,6 +260,26 @@ def query_runner(query_dict=None, persist_output=True):
         print(f"{'='*60}")
         print(json.dumps(result, indent=2, default=str))
         print(f"{'='*60}\n")
+
+    if session_manager is not None and session_id and query_log_id:
+        try:
+            result_status = "success"
+            result_error = None
+            if isinstance(result, dict):
+                status_value = str(result.get("status", "")).lower()
+                if status_value in {"failed", "error"} or result.get("error"):
+                    result_status = "failed"
+                    result_error = str(result.get("error")) if result.get("error") else None
+
+            session_manager.log_query_end(
+                session_id=session_id,
+                query_id=query_log_id,
+                outcome=result_status,
+                result=result if isinstance(result, dict) else None,
+                error=result_error,
+            )
+        except Exception:
+            pass
 
     return result
 

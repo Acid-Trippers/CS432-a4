@@ -5,9 +5,10 @@ import os
 import shutil
 import time
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
+from dashboard.dependencies import get_session_id
 from src.config import DATA_DIR, INITIAL_SCHEMA_FILE
 from src.phase_5.sql_engine import SQLEngine
 from src.phase_6.conflict_detector import get_conflict_detector
@@ -19,6 +20,26 @@ _WORKFLOW_METRICS_FILE = os.path.join(DATA_DIR, "developer_workflow_metrics.json
 
 class SchemaPayload(BaseModel):
     schema: dict
+
+
+def _attach_session_header(response: Response, session_id: str) -> None:
+    response.headers["X-Session-ID"] = session_id
+
+
+def _enter_pipeline_or_raise(request: Request) -> None:
+    session_manager = request.app.state.session_manager
+    can_enter, reason = session_manager.try_enter_pipeline()
+    if not can_enter:
+        if reason == "pipeline is already running":
+            raise HTTPException(status_code=409, detail=reason)
+        raise HTTPException(status_code=423, detail=reason or "system busy")
+
+    request.app.state.pipeline_busy = True
+
+
+def _exit_pipeline(request: Request) -> None:
+    request.app.state.session_manager.exit_pipeline()
+    request.app.state.pipeline_busy = False
 
 
 def _read_workflow_metrics() -> dict:
@@ -105,7 +126,14 @@ def _wipe_runtime_data_files(preserve_schema: bool = True) -> list[str]:
 
 
 @router.post("/api/pipeline/schema")
-async def save_schema(payload: SchemaPayload, request: Request):
+async def save_schema(
+    payload: SchemaPayload,
+    request: Request,
+    response: Response,
+    session_id: str = Depends(get_session_id),
+):
+    _attach_session_header(response, session_id)
+    _enter_pipeline_or_raise(request)
     try:
         schema_module = importlib.import_module("src.phase_1_to_4.00_schema_definition")
         schema_module.validate_structure(payload.schema)
@@ -125,14 +153,19 @@ async def save_schema(payload: SchemaPayload, request: Request):
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        _exit_pipeline(request)
 
 
 @router.post("/api/pipeline/initialise")
-async def run_initialise(request: Request, count: int = Query(default=1000, ge=0)):
-    if request.app.state.pipeline_busy:
-        raise HTTPException(status_code=409, detail="pipeline is already running")
-
-    request.app.state.pipeline_busy = True
+async def run_initialise(
+    request: Request,
+    response: Response,
+    count: int = Query(default=1000, ge=0),
+    session_id: str = Depends(get_session_id),
+):
+    _attach_session_header(response, session_id)
+    _enter_pipeline_or_raise(request)
 
     try:
         _dispose_shared_sql_engine(request)
@@ -159,15 +192,18 @@ async def run_initialise(request: Request, count: int = Query(default=1000, ge=0
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
     finally:
-        request.app.state.pipeline_busy = False
+        _exit_pipeline(request)
 
 
 @router.post("/api/pipeline/fetch")
-async def run_fetch(request: Request, count: int = Query(default=100, ge=0)):
-    if request.app.state.pipeline_busy:
-        raise HTTPException(status_code=409, detail="pipeline is already running")
-
-    request.app.state.pipeline_busy = True
+async def run_fetch(
+    request: Request,
+    response: Response,
+    count: int = Query(default=100, ge=0),
+    session_id: str = Depends(get_session_id),
+):
+    _attach_session_header(response, session_id)
+    _enter_pipeline_or_raise(request)
 
     try:
         _dispose_shared_sql_engine(request)
@@ -194,15 +230,18 @@ async def run_fetch(request: Request, count: int = Query(default=100, ge=0)):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
     finally:
-        request.app.state.pipeline_busy = False
+        _exit_pipeline(request)
 
 
 @router.post("/api/pipeline/reset")
-async def reset_everything(request: Request, wipe_schema: bool = Query(default=False)):
-    if request.app.state.pipeline_busy:
-        raise HTTPException(status_code=409, detail="pipeline is already running")
-
-    request.app.state.pipeline_busy = True
+async def reset_everything(
+    request: Request,
+    response: Response,
+    wipe_schema: bool = Query(default=False),
+    session_id: str = Depends(get_session_id),
+):
+    _attach_session_header(response, session_id)
+    _enter_pipeline_or_raise(request)
 
     try:
         print("[RESET] Disposing shared SQL engine...", flush=True)
@@ -216,6 +255,9 @@ async def reset_everything(request: Request, wipe_schema: bool = Query(default=F
 
         removed_paths = _wipe_runtime_data_files(preserve_schema=not wipe_schema)
         print(f"[RESET] Wiped {len(removed_paths)} runtime data files (wipe_schema={wipe_schema}).", flush=True)
+
+        # Requirement: reset clears both active and archived sessions registries.
+        request.app.state.session_manager.clear_all_sessions()
 
         get_conflict_detector().clear()
         
@@ -236,4 +278,4 @@ async def reset_everything(request: Request, wipe_schema: bool = Query(default=F
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
     finally:
-        request.app.state.pipeline_busy = False
+        _exit_pipeline(request)

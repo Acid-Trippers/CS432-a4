@@ -1,10 +1,11 @@
 import json
 from datetime import datetime, timezone
 from typing import Any
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Depends, Request, HTTPException, Response
 import httpx
 from pathlib import Path
 
+from dashboard.dependencies import get_session_id
 from src.config import (
     API_HOST,
     INITIAL_SCHEMA_FILE,
@@ -474,6 +475,44 @@ async def get_pipeline_stats(request: Request):
         "pipeline_busy": bool(getattr(request.app.state, "pipeline_busy", False)),
         "last_fetch": _load_last_fetch(),
         "transactions": _compute_transaction_stats()
+    }
+
+
+@router.get("/api/stats/sessions")
+async def get_sessions_stats(
+    request: Request,
+    response: Response,
+    session_id: str = Depends(get_session_id),
+):
+    response.headers["X-Session-ID"] = session_id
+    session_manager = request.app.state.session_manager
+    snapshot = session_manager.list_sessions(include_archived=True)
+
+    return {
+        "current_session_id": session_id,
+        "total": snapshot.get("total", 0),
+        "active": snapshot.get("active", 0),
+        "archived": snapshot.get("archived", 0),
+        "sessions": snapshot.get("sessions", []),
+    }
+
+
+@router.get("/api/stats/sessions/{target_session_id}")
+async def get_single_session_stats(
+    target_session_id: str,
+    request: Request,
+    response: Response,
+    session_id: str = Depends(get_session_id),
+):
+    response.headers["X-Session-ID"] = session_id
+    session_manager = request.app.state.session_manager
+    session_view = session_manager.get_session(target_session_id)
+    if session_view is None:
+        raise HTTPException(status_code=404, detail="session not found")
+
+    return {
+        "current_session_id": session_id,
+        "session": session_view,
     }
 
 

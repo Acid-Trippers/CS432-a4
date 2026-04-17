@@ -7,6 +7,7 @@ let currentColumnSortMode = "frequency";
 let currentRowSortColumn = "";
 const PAGE_SIZE = 100;
 const DEV_MODE_STORAGE_KEY = "dashboard_developer_mode";
+const SESSION_ID_STORAGE_KEY = "dashboard_session_id";
 let developerModeEnabled = false;
 
 let fieldDetailsRows = [];
@@ -546,8 +547,47 @@ function findCountByName(items, nameKey, countKey, targetName) {
   return Number(entry?.[countKey] || 0);
 }
 
+function getStoredSessionId() {
+  try {
+    const value = localStorage.getItem(SESSION_ID_STORAGE_KEY);
+    return value && value.trim() ? value.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function setStoredSessionId(sessionId) {
+  if (!sessionId || typeof sessionId !== "string") return;
+  try {
+    localStorage.setItem(SESSION_ID_STORAGE_KEY, sessionId.trim());
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+function buildSessionHeaders(existingHeaders = {}) {
+  const headers = { ...existingHeaders };
+  const sessionId = getStoredSessionId();
+  if (sessionId) {
+    headers["X-Session-ID"] = sessionId;
+  }
+  return headers;
+}
+
+function syncSessionIdFromResponse(response) {
+  if (!response?.headers) return;
+  const sessionId = response.headers.get("X-Session-ID");
+  if (sessionId && sessionId.trim()) {
+    setStoredSessionId(sessionId);
+  }
+}
+
 async function apiGet(url) {
-  const response = await fetch(url, { method: "GET" });
+  const response = await fetch(url, {
+    method: "GET",
+    headers: buildSessionHeaders(),
+  });
+  syncSessionIdFromResponse(response);
   if (!response.ok) {
     let detail = `Request failed (${response.status})`;
     try {
@@ -564,7 +604,7 @@ async function apiGet(url) {
 async function apiPost(url, body = null) {
   const options = {
     method: "POST",
-    headers: {},
+    headers: buildSessionHeaders(),
   };
 
   if (body !== null) {
@@ -573,6 +613,7 @@ async function apiPost(url, body = null) {
   }
 
   const response = await fetch(url, options);
+  syncSessionIdFromResponse(response);
   if (!response.ok) {
     let detail = `Request failed (${response.status})`;
     try {
@@ -585,6 +626,80 @@ async function apiPost(url, body = null) {
   }
 
   return response.json();
+}
+
+function setSessionMonitorRefreshedAt(state = "success") {
+  const target = document.getElementById("session-monitor-refreshed");
+  if (!target) return;
+
+  if (state === "error") {
+    target.textContent = "Session monitor unavailable";
+    return;
+  }
+
+  target.textContent = `Last refreshed: ${formatClockTime(new Date())}`;
+}
+
+function renderSessionMonitor(payload) {
+  const body = document.getElementById("session-monitor-body");
+  const counts = document.getElementById("session-monitor-counts");
+  const selfLabel = document.getElementById("session-monitor-self");
+  if (!body || !counts || !selfLabel) return;
+
+  const sessions = Array.isArray(payload?.sessions) ? payload.sessions : [];
+  const currentSessionId = payload?.current_session_id || getStoredSessionId() || "-";
+  const total = Number(payload?.total || 0);
+  const active = Number(payload?.active || 0);
+  const archived = Number(payload?.archived || 0);
+
+  counts.textContent = `Total: ${formatInteger(total)} · Active: ${formatInteger(active)} · Archived: ${formatInteger(archived)}`;
+  selfLabel.textContent = `Current Session: ${currentSessionId}`;
+
+  if (!sessions.length) {
+    body.innerHTML = '<tr><td colspan="6" class="meta-text">No sessions yet.</td></tr>';
+    setSessionMonitorRefreshedAt("success");
+    return;
+  }
+
+  body.innerHTML = sessions
+    .map((session) => {
+      const sessionId = String(session?.session_id || "-");
+      const status = String(session?.status || session?.location || "unknown");
+      const lastActive = formatRelativeTime(session?.last_active);
+      const queryCount = Number(session?.query_count || 0);
+      const txCount = Number(session?.transaction_count || 0);
+
+      const historyPayload = {
+        query_history: Array.isArray(session?.query_history)
+          ? session.query_history.slice(-5)
+          : [],
+        transaction_history: Array.isArray(session?.transaction_history)
+          ? session.transaction_history.slice(-5)
+          : [],
+      };
+
+      const isCurrent = sessionId === currentSessionId;
+      const normalizedStatus = status.toLowerCase() === "active" ? "active" : "archived";
+
+      return `
+        <tr class="${isCurrent ? "session-row-current" : ""}">
+          <td title="${escapeHtml(sessionId)}">${escapeHtml(sessionId)}</td>
+          <td><span class="session-status-pill ${normalizedStatus}">${escapeHtml(status)}</span></td>
+          <td>${escapeHtml(String(lastActive || "-"))}</td>
+          <td>${formatInteger(queryCount)}</td>
+          <td>${formatInteger(txCount)}</td>
+          <td class="session-history">
+            <details>
+              <summary>Recent</summary>
+              <pre>${escapeHtml(JSON.stringify(historyPayload, null, 2))}</pre>
+            </details>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  setSessionMonitorRefreshedAt("success");
 }
 
 function getResetEndpointUrl(wipeSchema) {
@@ -1075,10 +1190,11 @@ function renderDashboardStatsBundle(
 async function refreshDashboardStats() {
   const feedback = document.getElementById("dashboard-feedback");
   try {
-    const [status, stats, pipelineStats] = await Promise.all([
+    const [status, stats, pipelineStats, sessionsPayload] = await Promise.all([
       apiGet("/api/status"),
       apiGet("/api/stats"),
       apiGet("/api/pipeline/stats"),
+      apiGet("/api/stats/sessions").catch(() => null),
     ]);
 
     const stateLabel = document.getElementById("dashboard-state");
@@ -1108,6 +1224,11 @@ async function refreshDashboardStats() {
     }
 
     renderDashboardStatsBundle(status, stats, pipelineStats);
+    if (sessionsPayload) {
+      renderSessionMonitor(sessionsPayload);
+    } else {
+      setSessionMonitorRefreshedAt("error");
+    }
     setStatsRefreshedAt("success");
   } catch (error) {
     setFeedback(
@@ -1115,6 +1236,7 @@ async function refreshDashboardStats() {
       `Stats refresh failed: ${String(error.message || error)}`,
       true,
     );
+    setSessionMonitorRefreshedAt("error");
     setStatsRefreshedAt("error");
   }
 }

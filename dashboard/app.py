@@ -9,8 +9,16 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pymongo import MongoClient
 
+from dashboard.session_manager import SessionManager
 from dashboard.routers import acid, pipeline, query, stats
-from src.config import INITIAL_SCHEMA_FILE, METADATA_FILE, MONGO_URI, TRANSACTION_LOG_FILE
+from src.config import (
+    INITIAL_SCHEMA_FILE,
+    METADATA_FILE,
+    MONGO_URI,
+    SESSIONS_ARCHIVE_FILE,
+    SESSIONS_FILE,
+    TRANSACTION_LOG_FILE,
+)
 from src.phase_5.sql_engine import SQLEngine
 from src.phase_6.transaction_coordinator import TransactionCoordinator
 
@@ -41,10 +49,15 @@ async def lifespan(app: FastAPI):
     mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000)
 
     coordinator = TransactionCoordinator(log_file=TRANSACTION_LOG_FILE)
+    session_manager = SessionManager(
+        active_file=SESSIONS_FILE,
+        archive_file=SESSIONS_ARCHIVE_FILE,
+    )
 
     app.state.sql_engine = sql_engine
     app.state.mongo_client = mongo_client
     app.state.coordinator = coordinator
+    app.state.session_manager = session_manager
     app.state.pipeline_busy = False
 
     try:
