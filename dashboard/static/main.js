@@ -98,6 +98,7 @@ function renderComparativeChart(canvasId, title, testData) {
       options: {
           responsive: true,
           plugins: {
+              legend: { display: false },
               title: { display: true, text: title, font: { family: 'Space Grotesk', size: 14 } }
           },
           scales: {
@@ -1905,9 +1906,7 @@ async function refreshDeveloperMetricsPage() {
 
 async function runSinglePerformanceTest(testName) {
   const feedback = document.getElementById("dev-tests-feedback");
-  const button = document.querySelector(
-    `.run-performance-btn[data-perf-test="${testName}"]`,
-  );
+  const button = document.querySelector(`.run-performance-btn[data-perf-test="${testName}"]`);
   const previousText = button?.textContent || "Run Test";
 
   if (button) {
@@ -1917,18 +1916,26 @@ async function runSinglePerformanceTest(testName) {
   clearFeedback(feedback);
   showProgress(`Running performance test: ${testName}...`);
 
+  let requestBody = null;
+  if (testName === "comparative_analysis") {
+    const customEl = document.getElementById("comparative-custom-payload");
+    if (customEl && customEl.value.trim() !== "") {
+      try {
+        requestBody = JSON.parse(customEl.value);
+      } catch (e) {
+        setFeedback(feedback, "Custom payload must be valid JSON.", true);
+        if (button) { button.disabled = false; button.textContent = previousText; }
+        hideProgress();
+        return;
+      }
+    }
+  }
+
   try {
-    const payload = await apiPost(`/api/developer/performance/${testName}`);
+    const payload = await apiPost(`/api/developer/performance/${testName}`, requestBody);
     renderPerformanceResult(testName, payload, false);
-    setFeedback(feedback, `${testName} completed.`, false);
-    await refreshDeveloperMetricsPage();
   } catch (error) {
-    renderPerformanceResult(
-      testName,
-      { error: String(error.message || error) },
-      true,
-    );
-    setFeedback(feedback, String(error.message || error), true);
+    renderPerformanceResult(testName, { error: String(error.message || error) }, true);
   } finally {
     hideProgress();
     if (button) {

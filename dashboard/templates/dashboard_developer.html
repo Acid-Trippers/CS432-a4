@@ -228,6 +228,20 @@
           Measures the latency overhead of the logical abstraction layer compared to direct database queries.
         </p>
 
+        <div style="margin-top: 1rem; font-size: 0.85rem; color: var(--muted); background: #f8fff4; padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
+          <p style="margin-top: 0; margin-bottom: 0.5rem;">
+            <strong>How it works:</strong> The framework executes READ queries 20 times to calculate an accurate average. For cross-entity UPDATEs, it must ensure a clean slate. It dynamically <strong>creates a temporary record, updates it, and immediately deletes it</strong>—repeating this complete cycle 10 times to measure the exact transaction coordination latency without polluting your database.
+          </p>
+
+          <details style="margin-top: 0.5rem;">
+            <summary style="cursor: pointer; font-weight: 500; color: var(--accent);">Custom Update Payload (Optional)</summary>
+            <p style="margin-top: 0.5rem; margin-bottom: 0.5rem;">Define the initial record state and the fields to update. If left blank, the default test record is used.</p>
+            <textarea id="comparative-custom-payload" class="query-input" style="min-height: 110px;" placeholder='{
+"create_payload": { "username": "test_user", "city": "NYC", "subscription": "free" },
+"update_payload": { "subscription": "premium" }
+}'></textarea>
+          </details>
+        </div>
         <div id="comparative-table-container" style="margin-top: 1.5rem;"></div>
 
         <div class="charts-grid">

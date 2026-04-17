@@ -97,20 +97,30 @@ def run_mongo_comparison(runs=10):
         "framework_overhead_ms": round(overhead_ms, 3)
     }
 
-def run_cross_entity_update_comparison(runs=5):
+def run_cross_entity_update_comparison(runs=5, custom_payload=None):
     """Compares Logical vs Direct updates across multiple entities."""
     print("Running Cross-Entity Update Comparison...")
     
+    # Setup Default vs Custom Payloads
+    default_create = {
+        "username": "comparative_test_user",
+        "city": "test_city",
+        "subscription": "free"
+    }
+    default_update = {"subscription": "premium"}
+    
+    if custom_payload and isinstance(custom_payload, dict):
+        create_data = custom_payload.get("create_payload", default_create)
+        update_data = custom_payload.get("update_payload", default_update)
+    else:
+        create_data = default_create
+        update_data = default_update
+    
     def setup_temp_record():
-        # Create a temp record to get a valid integer record_id
         payload = {
             "operation": "CREATE",
             "entity": "main_records",
-            "payload": {
-                "username": "comparative_test_user",
-                "city": "test_city",
-                "subscription": "free"
-            }
+            "payload": create_data
         }
         crud_ops.refresh_connections()
         result = query_runner(query_dict=payload)
@@ -121,34 +131,28 @@ def run_cross_entity_update_comparison(runs=5):
         if model:
             sql_del = crud_ops.sql_engine.session.query(model).filter(model.record_id == record_id).delete(synchronize_session=False)
             crud_ops.sql_engine.session.commit()
-            
         mongo_del = crud_ops.mongo_db["main_records"].delete_many({"record_id": record_id}).deleted_count
-        
-        print(f"[CLEANUP] Deleted temp record {record_id} (SQL: {sql_del}, MONGO: {mongo_del})")
 
     def logical_update(target_id):
         payload = {
             "operation": "UPDATE",
             "entity": "main_records",
             "filters": {"record_id": target_id},
-            "payload": {"subscription": "premium"} # Using a valid column
+            "payload": update_data
         }
         crud_ops.refresh_connections()
         return query_runner(query_dict=payload)
         
     def direct_update(target_id):
         crud_ops.refresh_connections()
-        
-        # Direct SQL Update
         model = crud_ops.sql_engine.models.get("main_records")
         if model:
-            crud_ops.sql_engine.session.query(model).filter(model.record_id == target_id).update({"subscription": "premium"})
+            crud_ops.sql_engine.session.query(model).filter(model.record_id == target_id).update(update_data)
             crud_ops.sql_engine.session.commit()
             
-        # Direct Mongo Update
         crud_ops.mongo_db["main_records"].update_many(
             {"record_id": target_id},
-            {"$set": {"subscription": "premium"}}
+            {"$set": update_data}
         )
 
     # --- Run Logical Benchmark ---
@@ -156,11 +160,9 @@ def run_cross_entity_update_comparison(runs=5):
     for _ in range(runs):
         target_id = setup_temp_record()
         if not target_id: continue
-        
         t0 = time.perf_counter()
         logical_update(target_id)
         t1 = time.perf_counter()
-        
         logical_latencies.append((t1 - t0) * 1000.0)
         cleanup_temp_record(target_id)
         
@@ -169,15 +171,12 @@ def run_cross_entity_update_comparison(runs=5):
     for _ in range(runs):
         target_id = setup_temp_record()
         if not target_id: continue
-        
         t0 = time.perf_counter()
         direct_update(target_id)
         t1 = time.perf_counter()
-        
         direct_latencies.append((t1 - t0) * 1000.0)
         cleanup_temp_record(target_id)
 
-    # Calculate stats
     import statistics
     logical_avg = round(statistics.mean(logical_latencies), 3) if logical_latencies else 0
     direct_avg = round(statistics.mean(direct_latencies), 3) if direct_latencies else 0
@@ -188,21 +187,18 @@ def run_cross_entity_update_comparison(runs=5):
         "framework_overhead_ms": round(logical_avg - direct_avg, 3)
     }
 
-def execute_comparative_analysis():
+def execute_comparative_analysis(custom_payload=None):
     print("Starting Comparative Analysis...")
     report = {
         "sql_comparison": run_sql_comparison(runs=20),
         "mongo_comparison": run_mongo_comparison(runs=20),
-        "update_comparison": run_cross_entity_update_comparison(runs=10)
+        "update_comparison": run_cross_entity_update_comparison(runs=10, custom_payload=custom_payload)
     }
     
     out_file = report_dir / f"comparative_analysis_{int(time.time())}.json"
     with open(out_file, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
         
-    print(f"Saved comparative analysis report to: {out_file}")
-    print(json.dumps(report, indent=2))
-
     return report
 
 if __name__ == "__main__":

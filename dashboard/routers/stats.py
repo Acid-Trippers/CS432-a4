@@ -494,7 +494,7 @@ async def get_developer_metrics(request: Request):
     }
 
 
-def _run_performance_test(test_name: str) -> dict[str, Any]:
+def _run_performance_test(test_name: str, custom_payload: dict = None) -> dict[str, Any]:
     """Run one named performance test and return structured payload for UI consumption."""
     logical_query_case_map = {
         "logical_query_read": "READ_simple",
@@ -581,7 +581,7 @@ def _run_performance_test(test_name: str) -> dict[str, Any]:
     if test_name == "comparative_analysis":
         try:
             from performance_Evaluation.comparative_analysis import execute_comparative_analysis
-            return execute_comparative_analysis()
+            return execute_comparative_analysis(custom_payload=custom_payload) # <--- Pass it through!
         except Exception as e:
             import traceback
             error_detail = f"{type(e).__name__}: {str(e)}"
@@ -636,10 +636,14 @@ async def get_developer_performance_tests():
 
 
 @router.post("/api/developer/performance/{test_name}")
-async def run_developer_performance_test(test_name: str):
-    """Run one performance test and return machine-friendly result + human status."""
+async def run_developer_performance_test(test_name: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+
     started = datetime.now(timezone.utc)
-    result = _run_performance_test(test_name)
+    result = _run_performance_test(test_name, custom_payload=body) # <-- Pass body here
     finished = datetime.now(timezone.utc)
 
     return {
