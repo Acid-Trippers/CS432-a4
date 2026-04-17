@@ -86,7 +86,7 @@ def _execute_query(payload, mode="direct", api_base_url="http://127.0.0.1:8080")
             result = resp.json()
     else:
         crud_ops.refresh_connections()
-        result = query_runner(query_dict=payload)
+        result = query_runner(query_dict=payload, persist_output=False)
 
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
     print(f"[EXECUTE] Completed operation={operation} in {elapsed_ms:.3f}ms")
@@ -132,10 +132,7 @@ def _run_case(case_fn, runs=5):
     return summary
 
 
-def benchmark_query_types(runs=5, mode="direct", api_base_url="http://127.0.0.1:8080"):
-    """Benchmark READ/CREATE/UPDATE/DELETE query classes with automatic cleanup."""
-    print(f"[BENCH] Running logical query benchmarks with runs={runs}, mode={mode}")
-
+def _build_query_benchmark_cases(mode="direct", api_base_url="http://127.0.0.1:8080"):
     def case_read_simple():
         """Benchmark a simple equality READ query."""
         payload = {
@@ -216,12 +213,35 @@ def benchmark_query_types(runs=5, mode="direct", api_base_url="http://127.0.0.1:
         _delete_record_everywhere(record_id)
         return ms
 
+    return {
+        "READ_simple": case_read_simple,
+        "READ_advanced": case_read_advanced,
+        "CREATE_with_cleanup": case_create_with_cleanup,
+        "UPDATE_with_cleanup": case_update_with_cleanup,
+        "DELETE_with_cleanup": case_delete_case,
+    }
+
+
+def benchmark_query_case(case_name, runs=5, mode="direct", api_base_url="http://127.0.0.1:8080"):
+    """Benchmark one logical query case and return the summarized metrics."""
+    print(f"[BENCH] Running logical query benchmark case={case_name}, runs={runs}, mode={mode}")
+    cases = _build_query_benchmark_cases(mode=mode, api_base_url=api_base_url)
+    case_fn = cases.get(case_name)
+    if case_fn is None:
+        raise ValueError(f"Unknown query benchmark case: {case_name}")
+    return _run_case(case_fn, runs=runs)
+
+
+def benchmark_query_types(runs=5, mode="direct", api_base_url="http://127.0.0.1:8080"):
+    """Benchmark READ/CREATE/UPDATE/DELETE query classes with automatic cleanup."""
+    print(f"[BENCH] Running logical query benchmarks with runs={runs}, mode={mode}")
+    cases = _build_query_benchmark_cases(mode=mode, api_base_url=api_base_url)
     results = {
-        "READ_simple": _run_case(case_read_simple, runs=runs),
-        "READ_advanced": _run_case(case_read_advanced, runs=runs),
-        "CREATE_with_cleanup": _run_case(case_create_with_cleanup, runs=runs),
-        "UPDATE_with_cleanup": _run_case(case_update_with_cleanup, runs=runs),
-        "DELETE_with_cleanup": _run_case(case_delete_case, runs=runs),
+        "READ_simple": _run_case(cases["READ_simple"], runs=runs),
+        "READ_advanced": _run_case(cases["READ_advanced"], runs=runs),
+        "CREATE_with_cleanup": _run_case(cases["CREATE_with_cleanup"], runs=runs),
+        "UPDATE_with_cleanup": _run_case(cases["UPDATE_with_cleanup"], runs=runs),
+        "DELETE_with_cleanup": _run_case(cases["DELETE_with_cleanup"], runs=runs),
     }
     print(f"[BENCH] Logical query benchmark completed with results: {results}")
     return results

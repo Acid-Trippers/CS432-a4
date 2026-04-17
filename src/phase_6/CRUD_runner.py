@@ -177,7 +177,7 @@ def analyze_query_databases(parsed_query):
         "databases_needed": list(databases_needed)
     }
     
-def query_runner(query_dict=None):
+def query_runner(query_dict=None, persist_output=True):
     """
     Execute a CRUD query.
 
@@ -236,8 +236,8 @@ def query_runner(query_dict=None):
                 metrics["throughput_records_per_sec"] = round(row_count / (total_ms / 1000.0), 3) if total_ms > 0 else 0.0
                 
         result["metrics"] = metrics
-    # Save result to query_output.json
-    if result:
+    # Save result to query_output.json only for real query-interface executions.
+    if result and persist_output:
         result = _json_safe(result)
         try:
             with open(QUERY_OUTPUT_FILE, 'w') as f:

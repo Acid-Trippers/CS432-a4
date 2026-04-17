@@ -420,25 +420,49 @@ async def get_developer_metrics(request: Request):
 
 def _run_performance_test(test_name: str) -> dict[str, Any]:
     """Run one named performance test and return structured payload for UI consumption."""
-    if test_name == "logical_query_response":
-        from performance_Evaluation.logical_query_response_time import benchmark_query_types
-        result = benchmark_query_types(runs=2, mode="direct")
+    logical_query_case_map = {
+        "logical_query_read": "READ_simple",
+        "logical_query_create": "CREATE_with_cleanup",
+        "logical_query_update": "UPDATE_with_cleanup",
+        "logical_query_delete": "DELETE_with_cleanup",
+    }
 
-        summary = {
-            "has_results": True,
-            "read_ms": _extract_avg_latency_ms(result.get("READ_simple")),
-            "create_ms": _extract_avg_latency_ms(result.get("CREATE_with_cleanup")),
-            "update_ms": _extract_avg_latency_ms(result.get("UPDATE_with_cleanup")),
-            "delete_ms": _extract_avg_latency_ms(result.get("DELETE_with_cleanup")),
-            "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        }
+    if test_name in logical_query_case_map:
+        from performance_Evaluation.logical_query_response_time import benchmark_query_case
+
+        case_name = logical_query_case_map[test_name]
+        case_result = benchmark_query_case(case_name=case_name, runs=2, mode="direct")
+
+        existing = _read_json(_DEV_LOGICAL_QUERY_METRICS_FILE, {})
+        if not isinstance(existing, dict):
+            existing = {}
+
+        mapped_field = {
+            "logical_query_read": "read_ms",
+            "logical_query_create": "create_ms",
+            "logical_query_update": "update_ms",
+            "logical_query_delete": "delete_ms",
+        }[test_name]
+
+        existing[mapped_field] = _extract_avg_latency_ms(case_result)
+        existing["has_results"] = bool(
+            existing.get("read_ms") is not None
+            or existing.get("create_ms") is not None
+            or existing.get("update_ms") is not None
+            or existing.get("delete_ms") is not None
+        )
+        existing["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
         try:
             with open(_DEV_LOGICAL_QUERY_METRICS_FILE, "w", encoding="utf-8") as f:
-                json.dump(summary, f, indent=2)
+                json.dump(existing, f, indent=2)
         except Exception:
             pass
 
-        return result
+        return {
+            "case": case_name,
+            "summary": case_result,
+        }
 
     if test_name == "metadata_lookup_overhead":
         from performance_Evaluation.metadata_lookup_overhead import (
@@ -475,9 +499,24 @@ async def get_developer_performance_tests():
     return {
         "tests": [
             {
-                "id": "logical_query_response",
-                "label": "Logical Query Response",
-                "description": "Benchmarks READ/CREATE/UPDATE/DELETE query classes.",
+                "id": "logical_query_read",
+                "label": "Logical Query READ",
+                "description": "Benchmarks READ query latency.",
+            },
+            {
+                "id": "logical_query_create",
+                "label": "Logical Query CREATE",
+                "description": "Benchmarks CREATE query latency.",
+            },
+            {
+                "id": "logical_query_update",
+                "label": "Logical Query UPDATE",
+                "description": "Benchmarks UPDATE query latency.",
+            },
+            {
+                "id": "logical_query_delete",
+                "label": "Logical Query DELETE",
+                "description": "Benchmarks DELETE query latency.",
             },
             {
                 "id": "metadata_lookup_overhead",
@@ -514,7 +553,10 @@ async def run_all_developer_performance_tests():
     """Run all performance tests sequentially for quick developer diagnostics."""
     started = datetime.now(timezone.utc)
     ordered_tests = [
-        "logical_query_response",
+        "logical_query_read",
+        "logical_query_create",
+        "logical_query_update",
+        "logical_query_delete",
         "metadata_lookup_overhead",
         "transaction_coordination_overhead",
     ]

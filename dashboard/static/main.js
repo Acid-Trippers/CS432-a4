@@ -92,7 +92,10 @@ const ADVANCED_ACID_TESTS = [
 ];
 
 const PERFORMANCE_TESTS = [
-  "logical_query_response",
+  "logical_query_read",
+  "logical_query_create",
+  "logical_query_update",
+  "logical_query_delete",
   "metadata_lookup_overhead",
   "transaction_coordination_overhead",
 ];
