@@ -3,8 +3,8 @@ starter.py
 Purpose: Manage the Docker environment lifecycle separately from the pipeline.
 
 Usage:
-    python starter.py start   — starts all Docker containers and waits for readiness
-    python starter.py end     — stops all Docker containers cleanly
+    python legacy/starter.py start   - starts all Docker containers and waits for readiness
+    python legacy/starter.py end     - stops all Docker containers cleanly
 """
 
 import os
@@ -27,10 +27,20 @@ def wait_for_port(port, host='localhost', timeout=30):
     return False
 
 
+def get_compose_command():
+    """Return an available docker compose command (v2 preferred, v1 fallback)."""
+    try:
+        subprocess.run(["docker", "compose", "version"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return ["docker", "compose"]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return ["docker-compose"]
+
+
 def start():
+    compose_cmd = get_compose_command()
+
     print("[*] Checking if Docker Desktop is running...")
     try:
-        # Pings the engine to see if it's "Green"
         subprocess.run(["docker", "info"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print("[+] Docker Desktop is already running.")
     except (subprocess.CalledProcessError, FileNotFoundError):
@@ -39,15 +49,14 @@ def start():
         if os.path.exists(docker_path):
             subprocess.Popen([docker_path, "--minimized"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             print("[*] Launching Docker Desktop. Waiting for engine readiness (up to 2 mins)...")
-            
-            # Poll for engine readiness
+
             ready = False
-            for _ in range(60): 
+            for _ in range(60):
                 try:
                     subprocess.run(["docker", "info"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     ready = True
                     break
-                except:
+                except subprocess.CalledProcessError:
                     time.sleep(2)
             if not ready:
                 print("[X] Docker Engine failed to start. Please open it manually.")
@@ -59,7 +68,7 @@ def start():
             sys.exit(1)
     try:
         subprocess.run(
-            ["docker-compose", "-f", project_config.DOCKER_COMPOSE_FILE, "up", "-d"],
+            [*compose_cmd, "-f", project_config.DOCKER_COMPOSE_FILE, "up", "-d"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=True
@@ -69,25 +78,25 @@ def start():
         print("[!] Is Docker Desktop running?")
         sys.exit(1)
 
-    print("[*] Waiting for PostgreSQL (port 5432)...")
-    if not wait_for_port(5432):
+    print(f"[*] Waiting for PostgreSQL (port {project_config.PG_PORT})...")
+    if not wait_for_port(project_config.PG_PORT, timeout=project_config.DOCKER_STARTUP_TIMEOUT):
         print("[X] Timeout: PostgreSQL did not start in time.")
         sys.exit(1)
     print("[+] PostgreSQL is ready.")
 
-    print("[*] Waiting for MongoDB (port 27017)...")
-    if not wait_for_port(27017):
+    print(f"[*] Waiting for MongoDB (port {project_config.MONGO_PORT})...")
+    if not wait_for_port(project_config.MONGO_PORT, timeout=project_config.DOCKER_STARTUP_TIMEOUT):
         print("[X] Timeout: MongoDB did not start in time.")
         sys.exit(1)
     print("[+] MongoDB is ready.")
 
-    print("[*] Waiting for API (port 8000)...")
-    if not wait_for_port(8000):
+    print(f"[*] Waiting for API (port {project_config.API_PORT})...")
+    if not wait_for_port(project_config.API_PORT, timeout=project_config.DOCKER_STARTUP_TIMEOUT):
         print("[X] Timeout: API did not start in time.")
         sys.exit(1)
     print("[+] API is ready.")
 
-    time.sleep(2)  # final safety buffer for internal DB initialization
+    time.sleep(2)
     print("\n[+] All services are online. You can now run:")
     print("      python main.py initialise 500")
     print("      python main.py fetch 100")
@@ -96,8 +105,9 @@ def start():
 
 def end():
     print("[*] Stopping all Docker containers...")
+    compose_cmd = get_compose_command()
     subprocess.run(
-        ["docker-compose", "-f", project_config.DOCKER_COMPOSE_FILE, "down", "--timeout", "5"],
+        [*compose_cmd, "-f", project_config.DOCKER_COMPOSE_FILE, "down", "--timeout", "5"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         check=False
@@ -108,8 +118,8 @@ def end():
 def main():
     if len(sys.argv) < 2 or sys.argv[1] not in ("start", "end"):
         print("Usage:")
-        print("  python starter.py start   — start Docker environment")
-        print("  python starter.py end     — stop Docker environment")
+        print("  python legacy/starter.py start   - start Docker environment")
+        print("  python legacy/starter.py end     - stop Docker environment")
         sys.exit(1)
 
     command = sys.argv[1]

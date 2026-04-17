@@ -1,4 +1,3 @@
-import argparse
 import asyncio
 import importlib
 import json
@@ -9,7 +8,6 @@ import subprocess
 import sys
 import time
 import httpx
-import socket
 
 import project_config
 from src.config import *
@@ -28,7 +26,6 @@ analyzer_mod = importlib.import_module("src.phase_1_to_4.03_analyzer")
 metadata_builder = importlib.import_module("src.phase_1_to_4.04_metadata_builder")
 classifier = importlib.import_module("src.phase_1_to_4.05_classifier")
 data_router = importlib.import_module("src.phase_1_to_4.06_router")
-sql_schema_definer = importlib.import_module("src.phase_5.sql_schema_definer")
 sql_engine = importlib.import_module("src.phase_5.sql_engine")
 sql_pipeline = importlib.import_module("src.phase_5.sql_pipeline")
 crud_json_reader = importlib.import_module("src.phase_6.CRUD_json_reader")
@@ -243,7 +240,7 @@ def process_in_memory(raw_records, is_fetch=False):
         try:
             with open(COUNTER_FILE, 'r') as f:
                 offset = int(f.read().strip() or 0)
-        except: 
+        except Exception:
             offset = 0
 
     cleaner = cleaner_mod.DataCleaner()
@@ -498,9 +495,9 @@ def main():
         else project_config.FETCH_COUNT
     )
 
-    # Docker is managed externally via starter.py
-    # Run: python starter.py start   before running main.py
-    # Run: python starter.py end     when done
+    # Docker is managed externally via legacy/starter.py
+    # Run: python legacy/starter.py start   before running main.py
+    # Run: python legacy/starter.py end     when done
     api_process = start_api()
 
     if not wait_for_api():
@@ -523,7 +520,9 @@ def main():
             else:
                 print(f"[*] Resuming from last step: {last_step}")
                 if last_step == "ingest":
-                    process_in_memory(json.load(open(RECEIVED_DATA_FILE)), is_fetch=False)
+                    with open(RECEIVED_DATA_FILE, 'r', encoding='utf-8') as received_file:
+                        received_records = json.load(received_file)
+                    process_in_memory(received_records, is_fetch=False)
                     metadata_builder.merge_metadata()
                     classifier.run_classification()
                     data_router.route_data()
