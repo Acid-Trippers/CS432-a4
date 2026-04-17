@@ -74,7 +74,7 @@ ADVANCED_TESTS = [
 ]
 
 
-def _run_test(test_name: str):
+def _run_test(test_name: str, **kwargs):
     """
     Internal helper to execute a single test.
     
@@ -88,20 +88,23 @@ def _run_test(test_name: str):
         return {"error": f"Unknown test: {test_name}"}
     
     try:
-        result = TEST_REGISTRY[test_name]()
+        if kwargs:
+            result = TEST_REGISTRY[test_name](**kwargs)
+        else:
+            result = TEST_REGISTRY[test_name]()
         return result
     except Exception as e:
         return {"test": test_name, "passed": False, "error": str(e)}
 
 
-def run_acid_test(test_name: str):
+def run_acid_test(test_name: str, **kwargs):
     """Run a single core ACID test. Dashboard-friendly function."""
-    return _run_test(test_name)
+    return _run_test(test_name, **kwargs)
 
 
-def run_advanced_test(test_name: str):
+def run_advanced_test(test_name: str, **kwargs):
     """Run a single advanced ACID test. Dashboard-friendly function."""
-    return _run_test(test_name)
+    return _run_test(test_name, **kwargs)
 
 
 def run_all_tests():

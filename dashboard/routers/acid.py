@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 
 router = APIRouter(prefix="/api/acid")
@@ -25,10 +25,12 @@ async def run_single_advanced_test(test_name: str):
 
 
 @router.get("/{test_name}")
-async def run_single_acid_test(test_name: str):
+async def run_single_acid_test(test_name: str, crash_check: bool = Query(False)):
     try:
         from ACID.runner import run_acid_test
 
+        if test_name == "durability":
+            return run_acid_test(test_name, crash_check=crash_check)
         return run_acid_test(test_name)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
