@@ -11,6 +11,8 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/static/style.css?v=4" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
   </head>
   <body>
     <main id="developer-metrics-root" class="dashboard-shell">
@@ -210,6 +212,48 @@
           </article>
         </div>
       </section>
+
+
+      <section class="dashboard-section status-card" aria-labelledby="dev-comparative-title">
+        <div class="section-heading">
+          <h2 id="dev-comparative-title">Comparative Analysis</h2>
+          <div style="display: flex; gap: 1rem; align-items: center;">
+            <span id="badge-perf-comparative_analysis" class="result-badge neutral">Not Run</span>
+            <button class="btn btn-primary run-performance-btn" data-perf-test="comparative_analysis" type="button">
+              Run Analysis
+            </button>
+          </div>
+        </div>
+        <p class="subtitle" style="margin-top: 0;">
+          Measures the latency overhead of the logical abstraction layer compared to direct database queries.
+        </p>
+
+        <div id="comparative-table-container" style="margin-top: 1.5rem;"></div>
+
+        <div class="charts-grid">
+          <div class="chart-box">
+            <div style="position: relative; height: 250px; width: 100%;">
+              <canvas id="chart-sql-comparison"></canvas>
+            </div>
+          </div>
+          <div class="chart-box">
+            <div style="position: relative; height: 250px; width: 100%;">
+              <canvas id="chart-mongo-comparison"></canvas>
+            </div>
+          </div>
+          <div class="chart-box">
+            <div style="position: relative; height: 250px; width: 100%;">
+              <canvas id="chart-update-comparison"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <details id="details-perf-comparative_analysis" class="acid-details hidden" style="margin-top: 1.5rem;">
+          <summary>View Raw JSON Data</summary>
+          <pre id="json-perf-comparative_analysis"></pre>
+        </details>
+      </section>
+
     </main>
 
     <script src="/static/main.js?v=5"></script>

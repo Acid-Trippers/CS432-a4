@@ -116,7 +116,7 @@ def run_cross_entity_update_comparison(runs=5):
         result = query_runner(query_dict=payload)
         return result.get("details", {}).get("record_id")
 
-def cleanup_temp_record(record_id):
+    def cleanup_temp_record(record_id):
         model = crud_ops.sql_engine.models.get("main_records")
         if model:
             sql_del = crud_ops.sql_engine.session.query(model).filter(model.record_id == record_id).delete(synchronize_session=False)
@@ -202,6 +202,8 @@ def execute_comparative_analysis():
         
     print(f"Saved comparative analysis report to: {out_file}")
     print(json.dumps(report, indent=2))
+
+    return report
 
 if __name__ == "__main__":
     execute_comparative_analysis()

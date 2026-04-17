@@ -575,6 +575,16 @@ def _run_performance_test(test_name: str) -> dict[str, Any]:
             error_detail = f"{type(e).__name__}: {str(e)}"
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=error_detail)
+    
+    if test_name == "comparative_analysis":
+        try:
+            from performance_Evaluation.comparative_analysis import execute_comparative_analysis
+            return execute_comparative_analysis()
+        except Exception as e:
+            import traceback
+            error_detail = f"{type(e).__name__}: {str(e)}"
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=error_detail)
 
     raise HTTPException(status_code=404, detail=f"Unknown performance test: {test_name}")
 
@@ -614,6 +624,11 @@ async def get_developer_performance_tests():
                 "label": "Transaction Coordination Overhead",
                 "description": "Compares coordinator-backed writes vs manual baseline.",
             },
+            {
+                "id": "comparative_analysis",
+                "label": "Comparative Analysis",
+                "description": "Measures latency overhead of the logical layer vs direct DB queries.",
+            },
         ]
     }
 
@@ -645,6 +660,7 @@ async def run_all_developer_performance_tests():
         "logical_query_delete",
         "metadata_lookup_overhead",
         "transaction_coordination_overhead",
+        "comparative_analysis"
     ]
 
     results = {}

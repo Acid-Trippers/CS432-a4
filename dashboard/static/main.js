@@ -20,6 +20,93 @@ let _progressStart = null;
 // Simulated fill: creeps toward 90% while running, jumps to 100% on hideProgress
 let _progressFill = 0;
 
+
+// NEW SHTUFF BY DIVYANSH SHARMA 24110113 HELLO BOYS IF YOU LOOK AT THIS MESSAGE YOU DA REAL ONE
+
+function renderComparativeAnalysisUI(data) {
+  const container = document.getElementById('comparative-table-container');
+  if (!container || !data) return;
+
+  // 1. Build the HTML Table
+  let html = `
+  <table class="comparative-table">
+      <thead>
+          <tr>
+              <th>Operation</th>
+              <th>Logical Abstraction (ms)</th>
+              <th>Direct Database (ms)</th>
+              <th>Framework Overhead</th>
+          </tr>
+      </thead>
+      <tbody>
+  `;
+
+  const tests = [
+      { key: 'sql_comparison', label: 'SQL (Read)' },
+      { key: 'mongo_comparison', label: 'MongoDB (Read)' },
+      { key: 'update_comparison', label: 'Cross-Entity (Update)' }
+  ];
+
+  tests.forEach(test => {
+      const result = data[test.key];
+      if (result) {
+          // Highlight overhead: green if under 10ms, warning if higher
+          const badgeClass = result.framework_overhead_ms > 10 ? 'warning' : 'good';
+          html += `
+          <tr>
+              <td><strong>${test.label}</strong></td>
+              <td>${result.logical_latency.avg_ms} ms</td>
+              <td>${result.direct_latency.avg_ms} ms</td>
+              <td><span class="result-badge ${badgeClass}">+${result.framework_overhead_ms} ms</span></td>
+          </tr>
+          `;
+      }
+  });
+  html += `</tbody></table>`;
+  container.innerHTML = html;
+
+  // 2. Render the Bar Charts
+  renderComparativeChart('chart-sql-comparison', 'SQL (Read) Latency', data.sql_comparison);
+  renderComparativeChart('chart-mongo-comparison', 'Mongo (Read) Latency', data.mongo_comparison);
+  renderComparativeChart('chart-update-comparison', 'Cross-Entity (Update) Latency', data.update_comparison);
+}
+
+// Global object to store chart instances so they can be destroyed before re-drawing
+const chartInstances = {};
+
+function renderComparativeChart(canvasId, title, testData) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || !testData) return;
+
+  // Destroy previous chart instance if the user clicks "Run" multiple times
+  if (chartInstances[canvasId]) {
+      chartInstances[canvasId].destroy();
+  }
+
+  const ctx = canvas.getContext('2d');
+  chartInstances[canvasId] = new Chart(ctx, {
+      type: 'bar',
+      data: {
+          labels: ['Logical Framework', 'Direct DB'],
+          datasets: [{
+              label: 'Average Latency (ms)',
+              data: [testData.logical_latency.avg_ms, testData.direct_latency.avg_ms],
+              backgroundColor: ['#166534', '#5d6b7a'], // Green for logical, Gray for direct
+              borderWidth: 1
+          }]
+      },
+      options: {
+          responsive: true,
+          plugins: {
+              title: { display: true, text: title, font: { family: 'Space Grotesk', size: 14 } }
+          },
+          scales: {
+              y: { beginAtZero: true, title: { display: true, text: 'Time (ms)' } }
+          }
+      }
+  });
+}
+
 function showProgress(label = "Running...") {
   const wrap = document.getElementById("progress-wrap");
   const labelEl = document.getElementById("progress-label");
@@ -98,6 +185,7 @@ const PERFORMANCE_TESTS = [
   "logical_query_delete",
   "metadata_lookup_overhead",
   "transaction_coordination_overhead",
+  "comparative_analysis"
 ];
 
 const ACID_TEST_DETAILS = {
@@ -1472,6 +1560,12 @@ function renderPerformanceResult(testName, payload, isError = false) {
   }
   if (details) {
     details.classList.remove("hidden");
+  }
+
+
+  if (testName === "comparative_analysis" && payload && !isError) {
+    const actualData = payload.result ? payload.result : payload;
+    renderComparativeAnalysisUI(actualData); 
   }
 
   if (isError || payload?.error) {
