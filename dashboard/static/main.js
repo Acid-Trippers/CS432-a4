@@ -21,6 +21,7 @@ let _progressStart = null;
 // Simulated fill: creeps toward 90% while running, jumps to 100% on hideProgress
 let _progressFill = 0;
 let latestLandingStatus = null;
+let selectedAdminSessionIds = new Set();
 
 // NEW SHTUFF BY DIVYANSH SHARMA 24110113 HELLO BOYS IF YOU LOOK AT THIS MESSAGE YOU DA REAL ONE
 
@@ -495,6 +496,19 @@ function getDashboardRole() {
   return role === "user" ? "user" : "admin";
 }
 
+function shouldUseSessionStorage() {
+  const root = document.getElementById("dashboard-root");
+  if (isDeveloperMetricsPage()) return false;
+  if (!root) return true;
+  return getDashboardRole() === "user";
+}
+
+function getDashboardRequestRole() {
+  if (isDeveloperMetricsPage()) return "admin";
+  if (isDashboardPage()) return getDashboardRole();
+  return null;
+}
+
 function isDeveloperMetricsPage() {
   return Boolean(document.getElementById("developer-metrics-root"));
 }
@@ -614,7 +628,11 @@ function syncSessionIdFromDashboardPath() {
 
 function buildSessionHeaders(existingHeaders = {}) {
   const headers = { ...existingHeaders };
-  const sessionId = getStoredSessionId();
+  const dashboardRole = getDashboardRequestRole();
+  if (dashboardRole) {
+    headers["X-Dashboard-Role"] = dashboardRole;
+  }
+  const sessionId = shouldUseSessionStorage() ? getStoredSessionId() : null;
   if (sessionId) {
     headers["X-Session-ID"] = sessionId;
   }
@@ -622,7 +640,7 @@ function buildSessionHeaders(existingHeaders = {}) {
 }
 
 function syncSessionIdFromResponse(response) {
-  if (!response?.headers) return;
+  if (!response?.headers || !shouldUseSessionStorage()) return;
   const sessionId = response.headers.get("X-Session-ID");
   if (sessionId && sessionId.trim()) {
     setStoredSessionId(sessionId);
@@ -687,33 +705,83 @@ function setSessionMonitorRefreshedAt(state = "success") {
   target.textContent = `Last refreshed: ${formatClockTime(new Date())}`;
 }
 
-function renderSessionMonitor(payload) {
+function renderSessionMonitor(payload, dashboardRole = getDashboardRole()) {
   const body = document.getElementById("session-monitor-body");
   const counts = document.getElementById("session-monitor-counts");
   const selfLabel = document.getElementById("session-monitor-self");
   if (!body || !counts || !selfLabel) return;
 
+  const parseIso = (raw) => {
+    if (!raw) return null;
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const formatAbsoluteTime = (raw) => {
+    const parsed = parseIso(raw);
+    if (!parsed) return "-";
+    return parsed.toLocaleString();
+  };
+
+  const getDisplayStatus = (session) => {
+    const rawStatus = String(session?.status || "ACTIVE").toUpperCase();
+    const lastActiveDate = parseIso(session?.last_active);
+
+    if (rawStatus === "ACTIVE" && lastActiveDate) {
+      const ageSeconds = Math.floor((Date.now() - lastActiveDate.getTime()) / 1000);
+      if (ageSeconds > 5 * 60) {
+        return { label: "IDLE", className: "idle" };
+      }
+    }
+
+    if (rawStatus === "IN_TRANSACTION") {
+      return { label: "IN_TRANSACTION", className: "in-transaction" };
+    }
+    if (rawStatus === "ARCHIVED") {
+      return { label: "ARCHIVED", className: "archived" };
+    }
+    return { label: "ACTIVE", className: "active" };
+  };
+
   const sessions = Array.isArray(payload?.sessions) ? payload.sessions : [];
-  const currentSessionId =
-    payload?.current_session_id || getStoredSessionId() || "-";
   const total = Number(payload?.total || 0);
   const active = Number(payload?.active || 0);
   const archived = Number(payload?.archived || 0);
+
+  const currentIds = new Set(
+    sessions
+      .map((session) => String(session?.session_id || "").trim())
+      .filter((sessionId) => sessionId.length > 0),
+  );
+  selectedAdminSessionIds = new Set(
+    Array.from(selectedAdminSessionIds).filter((sessionId) => currentIds.has(sessionId)),
+  );
+
+  const payloadCurrentSessionId = String(payload?.current_session_id || "").trim();
+  const storedSessionId = getStoredSessionId();
+  const currentSessionId =
+    payloadCurrentSessionId ||
+    (dashboardRole === "user" && storedSessionId && currentIds.has(storedSessionId)
+      ? storedSessionId
+      : "-");
 
   counts.textContent = `Total: ${formatInteger(total)} · Active: ${formatInteger(active)} · Archived: ${formatInteger(archived)}`;
   selfLabel.textContent = `Current Session: ${currentSessionId}`;
 
   if (!sessions.length) {
     body.innerHTML =
-      '<tr><td colspan="6" class="meta-text">No sessions yet.</td></tr>';
+      '<tr><td colspan="9" class="meta-text">No sessions yet.</td></tr>';
     setSessionMonitorRefreshedAt("success");
+    selectedAdminSessionIds = new Set();
     return;
   }
 
   body.innerHTML = sessions
     .map((session) => {
       const sessionId = String(session?.session_id || "-");
-      const status = String(session?.status || session?.location || "unknown");
+      const title = String(session?.title || "Untitled Session");
+      const startedAt = formatAbsoluteTime(session?.started_at);
+      const displayStatus = getDisplayStatus(session);
       const lastActive = formatRelativeTime(session?.last_active);
       const queryCount = Number(session?.query_count || 0);
       const txCount = Number(session?.transaction_count || 0);
@@ -728,14 +796,15 @@ function renderSessionMonitor(payload) {
       };
 
       const isCurrent = sessionId === currentSessionId;
-      const normalizedStatus =
-        status.toLowerCase() === "active" ? "active" : "archived";
+      const checked = selectedAdminSessionIds.has(sessionId) ? "checked" : "";
 
       return `
         <tr class="${isCurrent ? "session-row-current" : ""}">
+          <td>${escapeHtml(title)}</td>
           <td title="${escapeHtml(sessionId)}">${escapeHtml(sessionId)}</td>
-          <td><span class="session-status-pill ${normalizedStatus}">${escapeHtml(status)}</span></td>
+          <td><span class="session-status-pill ${displayStatus.className}">${escapeHtml(displayStatus.label)}</span></td>
           <td>${escapeHtml(String(lastActive || "-"))}</td>
+          <td>${escapeHtml(startedAt)}</td>
           <td>${formatInteger(queryCount)}</td>
           <td>${formatInteger(txCount)}</td>
           <td class="session-history">
@@ -744,10 +813,31 @@ function renderSessionMonitor(payload) {
               <pre>${escapeHtml(JSON.stringify(historyPayload, null, 2))}</pre>
             </details>
           </td>
+          <td>
+            <input
+              type="checkbox"
+              class="session-select-checkbox"
+              data-session-id="${escapeHtml(sessionId)}"
+              ${checked}
+              aria-label="Select session ${escapeHtml(title)}"
+            />
+          </td>
         </tr>
       `;
     })
     .join("");
+
+  document.querySelectorAll(".session-select-checkbox").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const sessionId = String(checkbox.getAttribute("data-session-id") || "").trim();
+      if (!sessionId) return;
+      if (checkbox.checked) {
+        selectedAdminSessionIds.add(sessionId);
+      } else {
+        selectedAdminSessionIds.delete(sessionId);
+      }
+    });
+  });
 
   setSessionMonitorRefreshedAt("success");
 }
@@ -1123,12 +1213,12 @@ function attachSetupHandlers() {
       initBtn.disabled = true;
       setFeedback(
         message,
-        "Initialise started. Redirecting to landing on completion...",
+        "Initialise started. Redirecting to admin dashboard on completion...",
       );
 
       try {
         await apiPost(`/api/pipeline/initialise?count=${count}`);
-        window.location.href = "/";
+        window.location.href = "/dashboard/admin";
       } catch (error) {
         setFeedback(message, String(error.message || error), true);
         initBtn.disabled = false;
@@ -1140,6 +1230,7 @@ function attachSetupHandlers() {
 function setDashboardControlsDisabled(disabled) {
   const controls = [
     document.getElementById("btn-developer-mode"),
+    document.getElementById("btn-delete-selected-sessions"),
     document.getElementById("btn-fetch-more-toggle"),
     document.getElementById("btn-run-fetch"),
     document.getElementById("btn-reset-dashboard"),
@@ -1280,7 +1371,13 @@ function setKpiCardContent(id, value, subtitle, statusValue = null) {
   card.innerHTML = html;
 }
 
-function renderDashboardStatsBundle(status, stats, pipelineStats) {
+function renderDashboardStatsBundle(
+  status,
+  stats,
+  pipelineStats,
+  dashboardRole,
+  currentSessionStats = null,
+) {
   // Update SQL and NoSQL connection indicators
   const sqlDot = document.getElementById("sql-status-dot");
   if (sqlDot) {
@@ -1316,13 +1413,19 @@ function renderDashboardStatsBundle(status, stats, pipelineStats) {
     `Fetched ${fetchedCount} records`,
   );
 
-  const txTotal = formatInteger(pipelineStats?.transactions?.total);
-  setKpiCardContent("kpi-transactions", txTotal, "Total operations");
+  const globalTxTotal = Number(pipelineStats?.transactions?.total || 0);
+  const sessionTxTotal = Number(currentSessionStats?.transaction_count || 0);
+  const kpiTxValue = dashboardRole === "user" ? sessionTxTotal : globalTxTotal;
+  const kpiTxSubtitle =
+    dashboardRole === "user" ? "Transactions in this session" : "Total operations";
+  setKpiCardContent("kpi-transactions", formatInteger(kpiTxValue), kpiTxSubtitle);
 
+  const definedCount = Number(pipelineStats?.active_fields?.defined || 0);
+  const discoveredCount = Number(pipelineStats?.active_fields?.discovered || 0);
   setKpiCardContent(
     "kpi-active-fields-breakdown",
-    formatInteger(pipelineStats?.active_fields?.defined),
-    "Defined fields",
+    `${formatInteger(definedCount)} + ${formatInteger(discoveredCount)}`,
+    "Defined + discovered fields",
   );
 }
 
@@ -1330,14 +1433,18 @@ async function refreshDashboardStats() {
   const feedback = document.getElementById("dashboard-feedback");
   const dashboardRole = getDashboardRole();
   try {
-    const [status, stats, pipelineStats, sessionsPayload] = await Promise.all([
+    const [status, stats, pipelineStats, sessionsPayload, currentSessionStats] =
+      await Promise.all([
       apiGet("/api/status"),
       apiGet("/api/stats"),
       apiGet("/api/pipeline/stats"),
       dashboardRole === "admin"
         ? apiGet("/api/stats/sessions").catch(() => null)
         : Promise.resolve(null),
-    ]);
+      dashboardRole === "user"
+        ? apiGet("/api/stats/session/current").catch(() => null)
+        : Promise.resolve(null),
+      ]);
 
     const stateLabel = document.getElementById("dashboard-state");
     if (stateLabel)
@@ -1365,9 +1472,15 @@ async function refreshDashboardStats() {
       setDashboardControlsDisabled(false);
     }
 
-    renderDashboardStatsBundle(status, stats, pipelineStats);
+    renderDashboardStatsBundle(
+      status,
+      stats,
+      pipelineStats,
+      dashboardRole,
+      currentSessionStats,
+    );
     if (sessionsPayload) {
-      renderSessionMonitor(sessionsPayload);
+      renderSessionMonitor(sessionsPayload, dashboardRole);
     } else {
       setSessionMonitorRefreshedAt("error");
     }
@@ -2313,7 +2426,7 @@ function attachDeveloperMetricsHandlers() {
       persistDeveloperModeSetting(!developerModeEnabled);
       applyDeveloperModeUi();
       if (!developerModeEnabled) {
-        window.location.href = "/dashboard";
+        window.location.href = "/dashboard/admin";
         return;
       }
       await refreshDeveloperMetricsPage();
@@ -2346,6 +2459,9 @@ async function initializeDeveloperMetricsPage() {
 function attachDashboardHandlers() {
   const developerModeButton = document.getElementById("btn-developer-mode");
   const adminLogoutButton = document.getElementById("btn-admin-logout");
+  const deleteSelectedSessionsButton = document.getElementById(
+    "btn-delete-selected-sessions",
+  );
   const fetchToggle = document.getElementById("btn-fetch-more-toggle");
   const fetchForm = document.getElementById("fetch-form-inline");
   const runFetchButton = document.getElementById("btn-run-fetch");
@@ -2377,6 +2493,45 @@ function attachDashboardHandlers() {
         // Best-effort logout; redirect even if request fails.
       }
       window.location.href = "/";
+    });
+  }
+
+  if (deleteSelectedSessionsButton) {
+    deleteSelectedSessionsButton.addEventListener("click", async () => {
+      const selectedIds = Array.from(selectedAdminSessionIds);
+      if (!selectedIds.length) {
+        setFeedback(
+          feedback,
+          "Select at least one session from the monitor to delete.",
+          "warn",
+        );
+        return;
+      }
+
+      const confirmed = window.confirm(
+        `Delete ${selectedIds.length} selected session(s)? This cannot be undone.`,
+      );
+      if (!confirmed) return;
+
+      deleteSelectedSessionsButton.disabled = true;
+      setFeedback(feedback, "Deleting selected sessions...", false);
+      try {
+        const payload = await apiPost("/api/sessions/delete", {
+          session_ids: selectedIds,
+        });
+        selectedAdminSessionIds = new Set();
+        const deletedCount = Number(payload?.deleted_count || 0);
+        setFeedback(
+          feedback,
+          `Deleted ${formatInteger(deletedCount)} session(s).`,
+          false,
+        );
+        await refreshDashboardStats();
+      } catch (error) {
+        setFeedback(feedback, String(error.message || error), true);
+      } finally {
+        deleteSelectedSessionsButton.disabled = false;
+      }
     });
   }
 

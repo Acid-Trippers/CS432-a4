@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Initialized Dashboard</title>
+    <title>Admin Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -16,11 +16,11 @@
     <main id="dashboard-root" class="dashboard-shell" data-role="admin">
       <header class="dashboard-header status-card">
         <div>
-          <p class="eyebrow">Initialized Session</p>
-          <h1>Pipeline Dashboard</h1>
+          <p class="eyebrow">Administrator Control Panel</p>
+          <h1>Admin Dashboard</h1>
           <p class="subtitle">
-            Run fetches, monitor records, execute logical queries, and validate
-            ACID behavior.
+            Manage pipeline lifecycle, monitor sessions, run queries, and
+            execute ACID and performance checks.
           </p>
         </div>
 
@@ -98,7 +98,10 @@
         aria-labelledby="session-monitor-title"
       >
         <div class="section-heading">
-          <h2 id="session-monitor-title">Active Sessions</h2>
+          <h2 id="session-monitor-title">Admin Session Monitor</h2>
+          <button id="btn-delete-selected-sessions" class="btn btn-danger" type="button">
+            Delete Selected
+          </button>
           <span id="session-monitor-refreshed" class="meta-text"
             >Awaiting refresh...</span
           >
@@ -111,17 +114,20 @@
           <table class="result-table session-table">
             <thead>
               <tr>
-                <th>Session</th>
+                <th>Session Name</th>
+                <th>Session ID</th>
                 <th>Status</th>
                 <th>Last Active</th>
+                <th>Created At</th>
                 <th>Queries</th>
                 <th>Transactions</th>
                 <th>History</th>
+                <th>Select</th>
               </tr>
             </thead>
             <tbody id="session-monitor-body">
               <tr>
-                <td colspan="6" class="meta-text">No sessions yet.</td>
+                <td colspan="9" class="meta-text">No sessions yet.</td>
               </tr>
             </tbody>
           </table>

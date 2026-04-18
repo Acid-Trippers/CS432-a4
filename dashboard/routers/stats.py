@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Request, HTTPException, Response
 import httpx
 from pathlib import Path
 
-from dashboard.dependencies import get_session_id, require_admin
+from dashboard.dependencies import get_execution_context, require_admin
 from src.config import (
     API_HOST,
     INITIAL_SCHEMA_FILE,
@@ -478,19 +478,49 @@ async def get_pipeline_stats(request: Request):
     }
 
 
+@router.get("/api/stats/session/current")
+async def get_current_session_stats(
+    request: Request,
+    response: Response,
+    execution_context: dict[str, str | None] = Depends(get_execution_context),
+):
+    actor_type = execution_context.get("actor_type")
+    session_id = execution_context.get("session_id")
+
+    if actor_type == "admin":
+        raise HTTPException(status_code=403, detail="admin context has no user session")
+
+    if not isinstance(session_id, str) or not session_id:
+        raise HTTPException(status_code=400, detail="missing session context")
+
+    response.headers["X-Session-ID"] = session_id
+    session_manager = request.app.state.session_manager
+    session_view = session_manager.get_session(session_id)
+
+    if session_view is None:
+        raise HTTPException(status_code=404, detail="session not found")
+
+    return {
+        "session_id": session_view.get("session_id"),
+        "title": session_view.get("title") or "Untitled Session",
+        "status": session_view.get("status", "ACTIVE"),
+        "last_active": session_view.get("last_active"),
+        "started_at": session_view.get("started_at"),
+        "query_count": session_view.get("query_count", 0),
+        "transaction_count": session_view.get("transaction_count", 0),
+    }
+
+
 @router.get("/api/stats/sessions")
 async def get_sessions_stats(
     request: Request,
-    response: Response,
-    session_id: str = Depends(get_session_id),
     _: str = Depends(require_admin),
 ):
-    response.headers["X-Session-ID"] = session_id
     session_manager = request.app.state.session_manager
     snapshot = session_manager.list_sessions(include_archived=True)
 
     return {
-        "current_session_id": session_id,
+        "current_session_id": None,
         "total": snapshot.get("total", 0),
         "active": snapshot.get("active", 0),
         "archived": snapshot.get("archived", 0),
@@ -502,18 +532,15 @@ async def get_sessions_stats(
 async def get_single_session_stats(
     target_session_id: str,
     request: Request,
-    response: Response,
-    session_id: str = Depends(get_session_id),
     _: str = Depends(require_admin),
 ):
-    response.headers["X-Session-ID"] = session_id
     session_manager = request.app.state.session_manager
     session_view = session_manager.get_session(target_session_id)
     if session_view is None:
         raise HTTPException(status_code=404, detail="session not found")
 
     return {
-        "current_session_id": session_id,
+        "current_session_id": None,
         "session": session_view,
     }
 
@@ -695,7 +722,9 @@ async def get_developer_performance_tests(
 
 
 @router.post("/api/developer/performance/run_all")
-async def run_all_developer_performance_tests():
+async def run_all_developer_performance_tests(
+    _: str = Depends(require_admin),
+):
     """Run all performance tests sequentially for quick developer diagnostics."""
     started = datetime.now(timezone.utc)
     ordered_tests = [

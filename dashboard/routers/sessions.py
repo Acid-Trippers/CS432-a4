@@ -1,5 +1,7 @@
-from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
+
+from dashboard.dependencies import require_admin
 
 
 router = APIRouter(prefix="/api/sessions")
@@ -7,6 +9,10 @@ router = APIRouter(prefix="/api/sessions")
 
 class SessionCreatePayload(BaseModel):
     title: str = Field(min_length=1, max_length=120)
+
+
+class SessionDeletePayload(BaseModel):
+    session_ids: list[str] = Field(min_length=1)
 
 
 @router.get("")
@@ -59,6 +65,21 @@ async def create_session(
     return {
         "session_id": session_id,
         "title": session_obj.get("title") or "Untitled Session",
-        "status": session_obj.get("status", "active"),
+        "status": session_obj.get("status", "ACTIVE"),
         "started_at": session_obj.get("started_at"),
+    }
+
+
+@router.post("/delete")
+async def delete_sessions(
+    payload: SessionDeletePayload,
+    request: Request,
+    _: str = Depends(require_admin),
+):
+    session_manager = request.app.state.session_manager
+    result = session_manager.delete_sessions(payload.session_ids)
+
+    return {
+        "deleted_count": result.get("deleted_count", 0),
+        "deleted": result.get("deleted", []),
     }

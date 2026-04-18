@@ -903,6 +903,23 @@ select:focus {
   border-color: #d1d5db;
 }
 
+.session-status-pill.in-transaction {
+  background: #fff7da;
+  color: #7a5600;
+  border-color: #f1cf65;
+}
+
+.session-status-pill.idle {
+  background: #e5e7eb;
+  color: #4b5563;
+  border-color: #cbd5e1;
+}
+
+.session-select-checkbox {
+  width: 16px;
+  height: 16px;
+}
+
 .session-history details {
   max-width: 360px;
 }

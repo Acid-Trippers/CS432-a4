@@ -10,10 +10,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pymongo import MongoClient
 
+from dashboard.admin_activity import AdminActivityManager
 from dashboard.dependencies import is_admin_token_valid
 from dashboard.session_manager import SessionManager
 from dashboard.routers import acid, auth, exploration, pipeline, query, sessions, stats
 from src.config import (
+    ADMIN_ACTIVITY_FILE,
     INITIAL_SCHEMA_FILE,
     METADATA_FILE,
     MONGO_URI,
@@ -55,11 +57,13 @@ async def lifespan(app: FastAPI):
         active_file=SESSIONS_FILE,
         archive_file=SESSIONS_ARCHIVE_FILE,
     )
+    admin_activity_manager = AdminActivityManager(file_path=ADMIN_ACTIVITY_FILE)
 
     app.state.sql_engine = sql_engine
     app.state.mongo_client = mongo_client
     app.state.coordinator = coordinator
     app.state.session_manager = session_manager
+    app.state.admin_activity_manager = admin_activity_manager
     app.state.pipeline_busy = False
     app.state.admin_tokens = set()
 
@@ -160,6 +164,10 @@ async def dashboard_user(request: Request, session_id: str):
 
     session_view = request.app.state.session_manager.get_session(normalized_session_id)
     if session_view is None:
+        return RedirectResponse(url="/", status_code=307)
+    if str(session_view.get("status", "")).upper() == "ARCHIVED":
+        return RedirectResponse(url="/", status_code=307)
+    if str(session_view.get("location", "")).lower() == "archive":
         return RedirectResponse(url="/", status_code=307)
 
     return templates.TemplateResponse(

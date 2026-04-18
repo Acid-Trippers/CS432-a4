@@ -8,7 +8,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
-from dashboard.dependencies import get_session_id, require_admin
+from dashboard.dependencies import get_execution_context, require_admin
 from src.config import DATA_DIR, INITIAL_SCHEMA_FILE
 from src.phase_5.sql_engine import SQLEngine
 from src.phase_6.conflict_detector import get_conflict_detector
@@ -22,8 +22,9 @@ class SchemaPayload(BaseModel):
     schema: dict
 
 
-def _attach_session_header(response: Response, session_id: str) -> None:
-    response.headers["X-Session-ID"] = session_id
+def _attach_session_header(response: Response, session_id: str | None) -> None:
+    if isinstance(session_id, str) and session_id:
+        response.headers["X-Session-ID"] = session_id
 
 
 def _enter_pipeline_or_raise(request: Request) -> None:
@@ -129,11 +130,8 @@ def _wipe_runtime_data_files(preserve_schema: bool = True) -> list[str]:
 async def save_schema(
     payload: SchemaPayload,
     request: Request,
-    response: Response,
-    session_id: str = Depends(get_session_id),
     _: str = Depends(require_admin),
 ):
-    _attach_session_header(response, session_id)
     _enter_pipeline_or_raise(request)
     try:
         schema_module = importlib.import_module("src.phase_1_to_4.00_schema_definition")
@@ -161,12 +159,9 @@ async def save_schema(
 @router.post("/api/pipeline/initialise")
 async def run_initialise(
     request: Request,
-    response: Response,
     count: int = Query(default=1000, ge=0),
-    session_id: str = Depends(get_session_id),
     _: str = Depends(require_admin),
 ):
-    _attach_session_header(response, session_id)
     _enter_pipeline_or_raise(request)
 
     try:
@@ -202,8 +197,9 @@ async def run_fetch(
     request: Request,
     response: Response,
     count: int = Query(default=100, ge=0),
-    session_id: str = Depends(get_session_id),
+    execution_context: dict[str, str | None] = Depends(get_execution_context),
 ):
+    session_id = execution_context.get("session_id")
     _attach_session_header(response, session_id)
     _enter_pipeline_or_raise(request)
 
@@ -238,12 +234,9 @@ async def run_fetch(
 @router.post("/api/pipeline/reset")
 async def reset_everything(
     request: Request,
-    response: Response,
     wipe_schema: bool = Query(default=False),
-    session_id: str = Depends(get_session_id),
     _: str = Depends(require_admin),
 ):
-    _attach_session_header(response, session_id)
     _enter_pipeline_or_raise(request)
 
     try:

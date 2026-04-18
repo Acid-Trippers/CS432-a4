@@ -22,6 +22,7 @@ TRANSACTION_LOG_FILE = os.path.join(DATA_DIR, "transaction_log.json")
 PIPELINE_FAILURE_LOG_FILE = os.path.join(DATA_DIR, "pipeline_failures.json")
 SESSIONS_FILE = os.path.join(DATA_DIR, "sessions.json")
 SESSIONS_ARCHIVE_FILE = os.path.join(DATA_DIR, "sessions_archive.json")
+ADMIN_ACTIVITY_FILE = os.path.join(DATA_DIR, "admin_activity.json")
 
 # Database configuration
 DATABASE_URL = os.environ.get("POSTGRES_URI", "postgresql://admin:secret@localhost:5432/cs432_db")

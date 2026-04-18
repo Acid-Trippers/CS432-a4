@@ -27,8 +27,70 @@ def get_session_id(
     x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
 ) -> str:
     session_manager = request.app.state.session_manager
-    session_id = session_manager.resolve_or_create_session(x_session_id)
+    try:
+        session_id = session_manager.resolve_or_create_session(x_session_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=str(exc),
+        ) from exc
     return session_id
+
+
+def get_execution_context(
+    request: Request,
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+    x_dashboard_role: str | None = Header(default=None, alias="X-Dashboard-Role"),
+) -> dict[str, str | None]:
+    dashboard_role = x_dashboard_role.strip().lower() if isinstance(x_dashboard_role, str) else ""
+    resolved_admin_token = extract_admin_token(request, x_admin_token)
+
+    if dashboard_role == "admin" and is_admin_token_valid(request, resolved_admin_token):
+        return {
+            "actor_type": "admin",
+            "actor_id": "admin",
+            "session_id": None,
+        }
+
+    normalized_session_id = x_session_id.strip() if isinstance(x_session_id, str) else ""
+    if normalized_session_id:
+        session_manager = request.app.state.session_manager
+        try:
+            session_id = session_manager.resolve_or_create_session(normalized_session_id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_410_GONE,
+                detail=str(exc),
+            ) from exc
+
+        return {
+            "actor_type": "user",
+            "actor_id": session_id,
+            "session_id": session_id,
+        }
+
+    if is_admin_token_valid(request, resolved_admin_token):
+        return {
+            "actor_type": "admin",
+            "actor_id": "admin",
+            "session_id": None,
+        }
+
+    session_manager = request.app.state.session_manager
+    try:
+        session_id = session_manager.resolve_or_create_session(x_session_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=str(exc),
+        ) from exc
+
+    return {
+        "actor_type": "user",
+        "actor_id": session_id,
+        "session_id": session_id,
+    }
 
 
 def get_admin_tokens_store(request: Request) -> set[str]:

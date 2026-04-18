@@ -92,12 +92,18 @@ class SessionManager:
 
         return str(parsed)
 
+    @staticmethod
+    def _is_admin_actor(session_id: str | None) -> bool:
+        return isinstance(session_id, str) and (
+            session_id == "admin" or session_id.startswith("admin:")
+        )
+
     def _default_session(self, session_id: str, now_iso: str | None = None) -> dict[str, Any]:
         stamp = now_iso or self._now_iso()
         return {
             "session_id": session_id,
             "title": "Untitled Session",
-            "status": "active",
+            "status": "ACTIVE",
             "started_at": stamp,
             "last_active": stamp,
             "query_history": [],
@@ -110,6 +116,17 @@ class SessionManager:
             return "Untitled Session"
         normalized = title.strip()
         return normalized[:120] if normalized else "Untitled Session"
+
+    @staticmethod
+    def _normalize_status(status_value: Any, default: str = "ACTIVE") -> str:
+        normalized = str(status_value or "").strip().upper()
+        if normalized in {"ACTIVE", "IN_TRANSACTION", "ARCHIVED"}:
+            return normalized
+        if normalized in {"IN-TRANSACTION", "INTRANSACTION"}:
+            return "IN_TRANSACTION"
+        if normalized in {"ARCHIVE"}:
+            return "ARCHIVED"
+        return default
 
     def _trim_histories(self, session_obj: dict[str, Any]) -> None:
         query_history = session_obj.get("query_history")
@@ -154,7 +171,7 @@ class SessionManager:
             record = active.pop(session_id, None)
             if not isinstance(record, dict):
                 continue
-            record["status"] = "archived"
+            record["status"] = "ARCHIVED"
             record["archived_at"] = now_iso
             self._trim_histories(record)
             archive[session_id] = record
@@ -175,27 +192,28 @@ class SessionManager:
             active = self._read_json_dict(self.active_file)
             archive = self._read_json_dict(self.archive_file)
 
-            resolved_id = self._safe_uuid4(candidate_id) or str(uuid.uuid4())
+            candidate_uuid = self._safe_uuid4(candidate_id)
+            resolved_id = candidate_uuid or str(uuid.uuid4())
             now_iso = self._now_iso()
 
-            if resolved_id in archive and resolved_id not in active:
-                restored = archive.pop(resolved_id)
-                if not isinstance(restored, dict):
-                    restored = self._default_session(resolved_id, now_iso)
-                restored["title"] = self._normalize_title(restored.get("title"))
-                restored["status"] = "active"
-                restored["last_active"] = now_iso
-                restored.pop("archived_at", None)
-                self._trim_histories(restored)
-                active[resolved_id] = restored
-            elif resolved_id not in active:
+            if candidate_uuid and candidate_uuid in archive and candidate_uuid not in active:
+                raise ValueError("session is archived and closed")
+
+            if resolved_id in archive and resolved_id not in active and not candidate_uuid:
+                while resolved_id in archive or resolved_id in active:
+                    resolved_id = str(uuid.uuid4())
+
+            if resolved_id not in active:
                 active[resolved_id] = self._default_session(resolved_id, now_iso)
             else:
                 current = active[resolved_id]
                 if not isinstance(current, dict):
                     current = self._default_session(resolved_id, now_iso)
                 current["title"] = self._normalize_title(current.get("title"))
-                current["status"] = "active"
+                current_status = self._normalize_status(current.get("status"))
+                current["status"] = (
+                    "IN_TRANSACTION" if current_status == "IN_TRANSACTION" else "ACTIVE"
+                )
                 current["last_active"] = now_iso
                 self._trim_histories(current)
                 active[resolved_id] = current
@@ -205,6 +223,8 @@ class SessionManager:
             return resolved_id
 
     def touch_session(self, session_id: str) -> None:
+        if self._is_admin_actor(session_id):
+            return
         with self._state_lock:
             active = self._read_json_dict(self.active_file)
             now_iso = self._now_iso()
@@ -212,7 +232,10 @@ class SessionManager:
             if not isinstance(session_obj, dict):
                 session_obj = self._default_session(session_id, now_iso)
             session_obj["title"] = self._normalize_title(session_obj.get("title"))
-            session_obj["status"] = "active"
+            current_status = self._normalize_status(session_obj.get("status"))
+            session_obj["status"] = (
+                "IN_TRANSACTION" if current_status == "IN_TRANSACTION" else "ACTIVE"
+            )
             session_obj["last_active"] = now_iso
             self._trim_histories(session_obj)
             active[session_id] = session_obj
@@ -225,6 +248,10 @@ class SessionManager:
 
             active = self._read_json_dict(self.active_file)
             while new_id in active:
+                new_id = str(uuid.uuid4())
+
+            archive = self._read_json_dict(self.archive_file)
+            while new_id in archive:
                 new_id = str(uuid.uuid4())
 
             session_obj = self._default_session(new_id, now_iso)
@@ -247,6 +274,8 @@ class SessionManager:
             return copy.deepcopy(session_obj)
 
     def log_query_start(self, session_id: str, payload: dict[str, Any]) -> str:
+        if self._is_admin_actor(session_id):
+            return str(uuid.uuid4())
         with self._state_lock:
             active = self._read_json_dict(self.active_file)
             now_iso = self._now_iso()
@@ -268,7 +297,10 @@ class SessionManager:
             history.append(query_entry)
             session_obj["query_history"] = history
             session_obj["last_active"] = now_iso
-            session_obj["status"] = "active"
+            current_status = self._normalize_status(session_obj.get("status"))
+            session_obj["status"] = (
+                "IN_TRANSACTION" if current_status == "IN_TRANSACTION" else "ACTIVE"
+            )
             self._trim_histories(session_obj)
 
             active[session_id] = session_obj
@@ -283,6 +315,8 @@ class SessionManager:
         result: dict[str, Any] | None = None,
         error: str | None = None,
     ) -> None:
+        if self._is_admin_actor(session_id):
+            return
         with self._state_lock:
             active = self._read_json_dict(self.active_file)
             now_iso = self._now_iso()
@@ -349,7 +383,10 @@ class SessionManager:
 
             session_obj["query_history"] = history
             session_obj["last_active"] = now_iso
-            session_obj["status"] = "active"
+            current_status = self._normalize_status(session_obj.get("status"))
+            session_obj["status"] = (
+                "IN_TRANSACTION" if current_status == "IN_TRANSACTION" else "ACTIVE"
+            )
             self._trim_histories(session_obj)
 
             active[session_id] = session_obj
@@ -364,6 +401,8 @@ class SessionManager:
         error: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
+        if self._is_admin_actor(session_id):
+            return
         with self._state_lock:
             active = self._read_json_dict(self.active_file)
             now_iso = self._now_iso()
@@ -389,7 +428,7 @@ class SessionManager:
             tx_history.append(tx_entry)
             session_obj["transaction_history"] = tx_history
             session_obj["last_active"] = now_iso
-            session_obj["status"] = "active"
+            session_obj["status"] = "ACTIVE"
             self._trim_histories(session_obj)
 
             active[session_id] = session_obj
@@ -415,7 +454,21 @@ class SessionManager:
             }
             self._transaction_owner = session_id
             self._pending_transactions[session_id] = tx_payload
-            self.touch_session(session_id)
+
+            if self._is_admin_actor(session_id):
+                return copy.deepcopy(tx_payload)
+
+            active = self._read_json_dict(self.active_file)
+            now_iso = self._now_iso()
+            session_obj = active.get(session_id)
+            if not isinstance(session_obj, dict):
+                session_obj = self._default_session(session_id, now_iso)
+            session_obj["title"] = self._normalize_title(session_obj.get("title"))
+            session_obj["status"] = "IN_TRANSACTION"
+            session_obj["last_active"] = now_iso
+            self._trim_histories(session_obj)
+            active[session_id] = session_obj
+            self._atomic_write_json(self.active_file, active)
             return copy.deepcopy(tx_payload)
 
     def get_manual_transaction(self, session_id: str) -> dict[str, Any] | None:
@@ -444,6 +497,21 @@ class SessionManager:
             tx_payload["operations"] = operations
             tx_payload["last_active"] = self._now_iso()
             self._pending_transactions[session_id] = tx_payload
+
+            if self._is_admin_actor(session_id):
+                return copy.deepcopy(operation_entry)
+
+            active = self._read_json_dict(self.active_file)
+            now_iso = self._now_iso()
+            session_obj = active.get(session_id)
+            if not isinstance(session_obj, dict):
+                session_obj = self._default_session(session_id, now_iso)
+            session_obj["status"] = "IN_TRANSACTION"
+            session_obj["last_active"] = now_iso
+            self._trim_histories(session_obj)
+            active[session_id] = session_obj
+            self._atomic_write_json(self.active_file, active)
+
             self.touch_session(session_id)
             return copy.deepcopy(operation_entry)
 
@@ -470,6 +538,9 @@ class SessionManager:
             if self._transaction_owner == session_id:
                 self._transaction_owner = None
 
+            if self._is_admin_actor(session_id):
+                return tx_payload
+
             self.append_transaction(
                 session_id=session_id,
                 tx_id=str(tx_payload.get("tx_id")),
@@ -482,6 +553,17 @@ class SessionManager:
                     "result_count": tx_payload.get("result_count"),
                 },
             )
+
+            active = self._read_json_dict(self.active_file)
+            now_iso = self._now_iso()
+            session_obj = active.get(session_id)
+            if isinstance(session_obj, dict):
+                session_obj["status"] = "ACTIVE"
+                session_obj["last_active"] = now_iso
+                self._trim_histories(session_obj)
+                active[session_id] = session_obj
+                self._atomic_write_json(self.active_file, active)
+
             return tx_payload
 
     def rollback_manual_transaction(self, session_id: str, reason: str | None = None) -> dict[str, Any] | None:
@@ -538,6 +620,10 @@ class SessionManager:
             def _build_view(session_obj: dict[str, Any], location: str) -> dict[str, Any]:
                 record = copy.deepcopy(session_obj)
                 record["title"] = self._normalize_title(record.get("title"))
+                record["status"] = self._normalize_status(
+                    record.get("status"),
+                    default="ACTIVE" if location == "active" else "ARCHIVED",
+                )
                 queries = record.get("query_history")
                 txs = record.get("transaction_history")
                 if not isinstance(queries, list):
@@ -591,6 +677,10 @@ class SessionManager:
 
             result = copy.deepcopy(raw)
             result["title"] = self._normalize_title(result.get("title"))
+            result["status"] = self._normalize_status(
+                result.get("status"),
+                default="ACTIVE" if location == "active" else "ARCHIVED",
+            )
             query_history = result.get("query_history")
             tx_history = result.get("transaction_history")
             if not isinstance(query_history, list):
@@ -745,3 +835,38 @@ class SessionManager:
             self._pipeline_active = False
             self._atomic_write_json(self.active_file, {})
             self._atomic_write_json(self.archive_file, {})
+
+    def delete_sessions(self, session_ids: list[str]) -> dict[str, Any]:
+        with self._state_lock:
+            active = self._read_json_dict(self.active_file)
+            archive = self._read_json_dict(self.archive_file)
+
+            deleted: list[str] = []
+            for raw_id in session_ids:
+                resolved_id = self._safe_uuid4(raw_id)
+                if not resolved_id:
+                    continue
+
+                removed = False
+                if resolved_id in active:
+                    active.pop(resolved_id, None)
+                    removed = True
+                if resolved_id in archive:
+                    archive.pop(resolved_id, None)
+                    removed = True
+
+                if not removed:
+                    continue
+
+                self._pending_transactions.pop(resolved_id, None)
+                if self._transaction_owner == resolved_id:
+                    self._transaction_owner = None
+                deleted.append(resolved_id)
+
+            self._atomic_write_json(self.active_file, active)
+            self._atomic_write_json(self.archive_file, archive)
+
+            return {
+                "deleted": deleted,
+                "deleted_count": len(deleted),
+            }
