@@ -10,7 +10,11 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/static/style.css?v=7" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css"
+    />
+    <link rel="stylesheet" href="/static/style.css?v=8" />
   </head>
   <body>
     <main id="dashboard-root" class="dashboard-shell" data-role="user">
@@ -116,12 +120,52 @@
           </button>
         </div>
 
-        <label class="field-label" for="query-json">Query JSON</label>
-        <textarea
-          id="query-json"
-          class="query-input"
-          spellcheck="false"
-        ></textarea>
+        <div class="query-mode-toggle" role="tablist" aria-label="Query mode">
+          <button id="btn-query-mode-json" class="btn btn-primary" type="button" aria-pressed="true">JSON Mode</button>
+          <button id="btn-query-mode-builder" class="btn" type="button" aria-pressed="false">Builder Mode</button>
+        </div>
+
+        <div id="query-json-panel" class="query-mode-panel">
+          <label class="field-label" for="query-json">Query JSON</label>
+          <div class="query-editor-shell">
+            <textarea
+              id="query-json"
+              class="query-input"
+              spellcheck="false"
+            ></textarea>
+          </div>
+        </div>
+
+        <div id="query-builder-panel" class="query-mode-panel hidden">
+          <div class="query-builder-card">
+            <div class="query-builder-header">
+              <div>
+                <h3>Logical Query Builder</h3>
+                <p class="meta-text">Build a simple query, then run it with the current operation.</p>
+              </div>
+            </div>
+
+            <div class="qb-row">
+              <label class="field-label" for="qb-entity">Entity</label>
+              <input id="qb-entity" type="text" value="main_records" placeholder="main_records" />
+            </div>
+
+            <div class="qb-actions">
+              <button id="btn-add-filter-row" class="btn" type="button">+ Add Filter</button>
+              <button id="btn-clear-filter-rows" class="btn" type="button">Clear Filters</button>
+            </div>
+
+            <div id="qb-filters-container"></div>
+
+            <label class="field-label" for="qb-payload">Payload JSON <span class="meta-text">(CREATE / UPDATE)</span></label>
+            <textarea id="qb-payload" class="query-input qb-payload-input" spellcheck="false" placeholder='{"username":"sample_user"}'></textarea>
+
+            <p class="field-label">Compiled JSON</p>
+            <pre id="qb-json-output" class="qb-json-output">{}</pre>
+          </div>
+        </div>
+
+        <p id="query-json-status" class="feedback error query-json-status hidden" role="status"></p>
         <p id="query-feedback" class="feedback hidden" role="status"></p>
 
         <div class="results-panel">
@@ -339,7 +383,11 @@
       </dialog>
     </main>
 
-    <script src="/static/main.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+    <script src="/static/main.js?v=8"></script>
     <script src="/static/exploration-ui.js"></script>
   </body>
 </html>

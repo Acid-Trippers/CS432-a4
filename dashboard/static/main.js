@@ -478,6 +478,533 @@ const QUERY_TEMPLATES = {
   },
 };
 
+let queryEditorInstance = null;
+let queryValidationTimer = null;
+let queryMode = "json";
+
+const QUERY_BUILDER_OPERATOR_OPTIONS = [
+  { value: "=", label: "=" },
+  { value: "!=", label: "!=" },
+  { value: ">", label: ">" },
+  { value: ">=", label: ">=" },
+  { value: "<", label: "<" },
+  { value: "<=", label: "<=" },
+  { value: "CONTAINS", label: "CONTAINS" },
+  { value: "STARTS_WITH", label: "STARTS_WITH" },
+  { value: "ENDS_WITH", label: "ENDS_WITH" },
+  { value: "EXISTS", label: "EXISTS" },
+];
+
+const QUERY_BUILDER_OPERATOR_MAP = {
+  "=": "$eq",
+  "!=": "$ne",
+  ">": "$gt",
+  ">=": "$gte",
+  "<": "$lt",
+  "<=": "$lte",
+  CONTAINS: "$contains",
+  STARTS_WITH: "$starts_with",
+  ENDS_WITH: "$ends_with",
+  EXISTS: "$exists",
+};
+
+const QUERY_BUILDER_OPERATOR_REVERSE_MAP = {
+  $eq: "=",
+  $ne: "!=",
+  $gt: ">",
+  $gte: ">=",
+  $lt: "<",
+  $lte: "<=",
+  $contains: "CONTAINS",
+  $starts_with: "STARTS_WITH",
+  $ends_with: "ENDS_WITH",
+  $exists: "EXISTS",
+};
+
+function getQueryEditorElement() {
+  return document.getElementById("query-json");
+}
+
+function getQueryValidationElement() {
+  return document.getElementById("query-json-status");
+}
+
+function getQueryEditorValue() {
+  if (queryEditorInstance) {
+    return queryEditorInstance.getValue();
+  }
+
+  const editor = getQueryEditorElement();
+  return editor ? editor.value : "";
+}
+
+function setQueryEditorValue(value) {
+  const text = String(value ?? "");
+
+  if (queryEditorInstance) {
+    if (queryEditorInstance.getValue() !== text) {
+      queryEditorInstance.setValue(text);
+    }
+    queryEditorInstance.clearHistory();
+    return;
+  }
+
+  const editor = getQueryEditorElement();
+  if (editor) {
+    editor.value = text;
+  }
+}
+
+function setQueryValidationState(message, isError) {
+  const status = getQueryValidationElement();
+  const wrapper = queryEditorInstance
+    ? queryEditorInstance.getWrapperElement()
+    : getQueryEditorElement()?.closest(".query-editor-shell");
+
+  if (wrapper) {
+    wrapper.classList.toggle(
+      "query-editor-invalid",
+      Boolean(isError && message),
+    );
+    wrapper.setAttribute("aria-invalid", isError && message ? "true" : "false");
+  }
+
+  if (!status) return;
+
+  if (!message) {
+    status.textContent = "";
+    status.classList.add("hidden");
+    status.classList.remove("error");
+    return;
+  }
+
+  status.textContent = message;
+  status.classList.remove("hidden");
+  status.classList.toggle("error", Boolean(isError));
+}
+
+function validateQueryJson() {
+  const raw = getQueryEditorValue().trim();
+
+  if (!raw) {
+    setQueryValidationState("Query JSON cannot be empty.", true);
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    setQueryValidationState("", false);
+    return parsed;
+  } catch (error) {
+    setQueryValidationState(
+      `Invalid JSON: ${String(error.message || error)}`,
+      true,
+    );
+    return null;
+  }
+}
+
+function scheduleQueryValidation() {
+  if (queryValidationTimer) {
+    clearTimeout(queryValidationTimer);
+  }
+
+  queryValidationTimer = setTimeout(() => {
+    validateQueryJson();
+  }, 180);
+}
+
+function initializeQueryEditor() {
+  const editor = getQueryEditorElement();
+  if (!editor) return null;
+
+  if (queryEditorInstance) {
+    return queryEditorInstance;
+  }
+
+  if (window.CodeMirror && typeof window.CodeMirror.fromTextArea === "function") {
+    queryEditorInstance = window.CodeMirror.fromTextArea(editor, {
+      mode: { name: "javascript", json: true },
+      lineNumbers: true,
+      lineWrapping: true,
+      indentUnit: 2,
+      tabSize: 2,
+      indentWithTabs: false,
+      smartIndent: true,
+      matchBrackets: true,
+      autoCloseBrackets: true,
+      viewportMargin: Infinity,
+      extraKeys: {
+        Tab(cm) {
+          if (cm.somethingSelected()) {
+            cm.indentSelection("add");
+            return;
+          }
+          cm.replaceSelection("  ", "end", "+input");
+        },
+        "Shift-Tab"(cm) {
+          cm.indentSelection("subtract");
+        },
+        "Ctrl-Enter"() {
+          document.getElementById("btn-run-query")?.click();
+        },
+        "Cmd-Enter"() {
+          document.getElementById("btn-run-query")?.click();
+        },
+      },
+    });
+
+    queryEditorInstance.on("change", scheduleQueryValidation);
+    queryEditorInstance.on("blur", validateQueryJson);
+  } else {
+    editor.addEventListener("input", scheduleQueryValidation);
+    editor.addEventListener("blur", validateQueryJson);
+  }
+
+  return queryEditorInstance;
+}
+
+function getQueryModeJsonPanel() {
+  return document.getElementById("query-json-panel");
+}
+
+function getQueryModeBuilderPanel() {
+  return document.getElementById("query-builder-panel");
+}
+
+function getQueryModeToggleButton(mode) {
+  return document.getElementById(
+    mode === "builder" ? "btn-query-mode-builder" : "btn-query-mode-json",
+  );
+}
+
+function getQueryBuilderEntityInput() {
+  return document.getElementById("qb-entity");
+}
+
+function getQueryBuilderPayloadInput() {
+  return document.getElementById("qb-payload");
+}
+
+function getQueryBuilderFiltersContainer() {
+  return document.getElementById("qb-filters-container");
+}
+
+function getQueryBuilderOutput() {
+  return document.getElementById("qb-json-output");
+}
+
+function parseQueryBuilderScalar(rawValue) {
+  const trimmed = String(rawValue ?? "").trim();
+  if (!trimmed) return "";
+  if (trimmed === "true") return true;
+  if (trimmed === "false") return false;
+  if (trimmed === "null") return null;
+  if (/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(trimmed)) {
+    const numberValue = Number(trimmed);
+    if (!Number.isNaN(numberValue)) return numberValue;
+  }
+  return trimmed;
+}
+
+function serializeQueryBuilderValue(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return JSON.stringify(value);
+}
+
+function createQueryBuilderFilterRow(initial = {}) {
+  const row = document.createElement("div");
+  row.className = "qb-filter-row";
+
+  const fieldValue = String(initial.field || "");
+  const operatorValue = String(initial.operator || "=");
+  const rawValue = initial.value === undefined ? "" : serializeQueryBuilderValue(initial.value);
+
+  row.innerHTML = `
+    <input type="text" class="qb-filter-field" placeholder="Field (e.g. age)" value="${escapeHtml(fieldValue)}">
+    <select class="qb-filter-operator">
+      ${QUERY_BUILDER_OPERATOR_OPTIONS.map(
+        (option) => `<option value="${escapeHtml(option.value)}"${option.value === operatorValue ? " selected" : ""}>${escapeHtml(option.label)}</option>`,
+      ).join("")}
+    </select>
+    <input type="text" class="qb-filter-value" placeholder="Value" value="${escapeHtml(rawValue)}">
+    <button type="button" class="btn qb-filter-remove">Remove</button>
+  `;
+
+  return row;
+}
+
+function addQueryBuilderFilterRow(initial = {}) {
+  const container = getQueryBuilderFiltersContainer();
+  if (!container) return null;
+  const row = createQueryBuilderFilterRow(initial);
+  container.appendChild(row);
+  return row;
+}
+
+function clearQueryBuilderFilterRows() {
+  const container = getQueryBuilderFiltersContainer();
+  if (!container) return;
+  container.innerHTML = "";
+}
+
+function getQueryBuilderFilterRows() {
+  return Array.from(document.querySelectorAll(".qb-filter-row"));
+}
+
+function getQueryBuilderPreviewPayload() {
+  const output = getQueryBuilderOutput();
+  if (!output) return;
+  return output.textContent || "{}";
+}
+
+function buildQueryBuilderPayloadFromDom() {
+  const operationSelect = document.getElementById("query-operation");
+  const operation = String(operationSelect?.value || "READ");
+  const entity = String(getQueryBuilderEntityInput()?.value || "main_records").trim() || "main_records";
+  const payload = {
+    operation,
+    entity,
+    filters: {},
+  };
+
+  const errors = [];
+  getQueryBuilderFilterRows().forEach((row) => {
+    const field = String(row.querySelector(".qb-filter-field")?.value || "").trim();
+    const operator = String(row.querySelector(".qb-filter-operator")?.value || "=");
+    const rawValue = String(row.querySelector(".qb-filter-value")?.value || "").trim();
+
+    if (!field && !rawValue) return;
+    if (!field) {
+      errors.push("Each filter row needs a field name.");
+      return;
+    }
+
+    if (operator !== "EXISTS" && !rawValue) {
+      errors.push(`Filter value is required for '${field}'.`);
+      return;
+    }
+
+    const mappedOperator = QUERY_BUILDER_OPERATOR_MAP[operator] || "$eq";
+    const value = operator === "EXISTS" ? rawValue === "true" : parseQueryBuilderScalar(rawValue);
+    const existingCondition = payload.filters[field];
+
+    if (!existingCondition) {
+      payload.filters[field] = mappedOperator === "$eq" ? value : { [mappedOperator]: value };
+      return;
+    }
+
+    const conditionObject =
+      existingCondition && typeof existingCondition === "object" && !Array.isArray(existingCondition)
+        ? existingCondition
+        : { $eq: existingCondition };
+    conditionObject[mappedOperator] = value;
+    payload.filters[field] = conditionObject;
+  });
+
+  if (operation === "CREATE" || operation === "UPDATE") {
+    const payloadInput = getQueryBuilderPayloadInput();
+    const rawPayload = String(payloadInput?.value || "").trim();
+
+    if (!rawPayload) {
+      errors.push(`${operation} operation requires payload JSON.`);
+    } else {
+      try {
+        payload.payload = JSON.parse(rawPayload);
+      } catch (error) {
+        errors.push(`Payload JSON must be valid JSON: ${String(error.message || error)}`);
+      }
+    }
+  }
+
+  if (errors.length) {
+    setQueryValidationState(errors[0], true);
+    return null;
+  }
+
+  if (getQueryBuilderOutput()) {
+    getQueryBuilderOutput().textContent = JSON.stringify(payload, null, 2);
+  }
+  setQueryValidationState("", false);
+  return payload;
+}
+
+function populateQueryBuilderFromPayload(payload) {
+  const entityInput = getQueryBuilderEntityInput();
+  const payloadInput = getQueryBuilderPayloadInput();
+  const filtersContainer = getQueryBuilderFiltersContainer();
+
+  if (!entityInput || !payloadInput || !filtersContainer) return;
+
+  entityInput.value = String(payload?.entity || "main_records");
+  payloadInput.value = payload?.payload ? JSON.stringify(payload.payload, null, 2) : "";
+
+  clearQueryBuilderFilterRows();
+  const filters = payload?.filters;
+  let rowCount = 0;
+
+  if (filters && typeof filters === "object" && !Array.isArray(filters)) {
+    Object.entries(filters).forEach(([field, condition]) => {
+      if (String(field).startsWith("$")) return;
+
+      if (condition && typeof condition === "object" && !Array.isArray(condition)) {
+        Object.entries(condition).forEach(([operator, value]) => {
+          addQueryBuilderFilterRow({
+            field,
+            operator: QUERY_BUILDER_OPERATOR_REVERSE_MAP[operator] || "=",
+            value,
+          });
+          rowCount += 1;
+        });
+        return;
+      }
+
+      addQueryBuilderFilterRow({ field, operator: "=", value: condition });
+      rowCount += 1;
+    });
+  }
+
+  if (!rowCount) {
+    addQueryBuilderFilterRow();
+  }
+
+  if (getQueryBuilderOutput()) {
+    getQueryBuilderOutput().textContent = JSON.stringify(payload || {}, null, 2);
+  }
+}
+
+function initializeQueryBuilder() {
+  const filtersContainer = getQueryBuilderFiltersContainer();
+  const addButton = document.getElementById("btn-add-filter-row");
+  const clearButton = document.getElementById("btn-clear-filter-rows");
+  const entityInput = getQueryBuilderEntityInput();
+  const payloadInput = getQueryBuilderPayloadInput();
+
+  if (!filtersContainer || filtersContainer.dataset.initialized === "true") {
+    return;
+  }
+
+  filtersContainer.dataset.initialized = "true";
+
+  const refreshPreview = () => buildQueryBuilderPayloadFromDom();
+
+  if (addButton) {
+    addButton.addEventListener("click", () => {
+      addQueryBuilderFilterRow();
+      refreshPreview();
+    });
+  }
+
+  if (clearButton) {
+    clearButton.addEventListener("click", () => {
+      clearQueryBuilderFilterRows();
+      addQueryBuilderFilterRow();
+      refreshPreview();
+    });
+  }
+
+  if (entityInput) {
+    entityInput.addEventListener("input", refreshPreview);
+  }
+
+  if (payloadInput) {
+    payloadInput.addEventListener("input", refreshPreview);
+  }
+
+  filtersContainer.addEventListener("input", (event) => {
+    if (event.target.closest(".qb-filter-row")) {
+      refreshPreview();
+    }
+  });
+
+  filtersContainer.addEventListener("change", (event) => {
+    if (event.target.closest(".qb-filter-row")) {
+      refreshPreview();
+    }
+  });
+
+  filtersContainer.addEventListener("click", (event) => {
+    const removeButton = event.target.closest(".qb-filter-remove");
+    if (!removeButton) return;
+
+    const row = removeButton.closest(".qb-filter-row");
+    if (row) row.remove();
+
+    if (!getQueryBuilderFilterRows().length) {
+      addQueryBuilderFilterRow();
+    }
+
+    refreshPreview();
+  });
+
+  if (!getQueryBuilderFilterRows().length) {
+    addQueryBuilderFilterRow();
+  }
+  refreshPreview();
+}
+
+function refreshQueryModeUi() {
+  const jsonPanel = getQueryModeJsonPanel();
+  const builderPanel = getQueryModeBuilderPanel();
+  const jsonButton = getQueryModeToggleButton("json");
+  const builderButton = getQueryModeToggleButton("builder");
+
+  if (jsonPanel) {
+    jsonPanel.classList.toggle("hidden", queryMode !== "json");
+  }
+  if (builderPanel) {
+    builderPanel.classList.toggle("hidden", queryMode !== "builder");
+  }
+
+  if (jsonButton) {
+    jsonButton.setAttribute("aria-pressed", queryMode === "json" ? "true" : "false");
+    jsonButton.classList.toggle("btn-primary", queryMode === "json");
+  }
+  if (builderButton) {
+    builderButton.setAttribute("aria-pressed", queryMode === "builder" ? "true" : "false");
+    builderButton.classList.toggle("btn-primary", queryMode === "builder");
+  }
+}
+
+function setQueryMode(mode) {
+  const nextMode = mode === "builder" ? "builder" : "json";
+  if (queryMode === nextMode) {
+    refreshQueryModeUi();
+    return;
+  }
+
+  queryMode = nextMode;
+  refreshQueryModeUi();
+
+  if (queryMode === "builder") {
+    const parsed = validateQueryJson();
+    if (parsed) {
+      populateQueryBuilderFromPayload(parsed);
+    }
+    return;
+  }
+
+  const compiled = buildQueryBuilderPayloadFromDom();
+  if (compiled) {
+    setQueryEditorValue(JSON.stringify(compiled, null, 2));
+  }
+}
+
+function syncBuilderPreviewFromTemplate(templatePayload) {
+  populateQueryBuilderFromPayload(templatePayload);
+}
+
+function applyBuilderTemplateToJson() {
+  const payload = buildQueryBuilderPayloadFromDom();
+  if (!payload) return false;
+  setQueryEditorValue(JSON.stringify(payload, null, 2));
+  return true;
+}
+
 function isLandingPage() {
   return Boolean(document.getElementById("pipeline-state"));
 }
@@ -1497,10 +2024,10 @@ async function refreshDashboardStats() {
 }
 
 function applyQueryTemplate(operation) {
-  const editor = document.getElementById("query-json");
-  if (!editor) return;
   const template = QUERY_TEMPLATES[operation] || QUERY_TEMPLATES.READ;
-  editor.value = JSON.stringify(template, null, 2);
+  setQueryEditorValue(JSON.stringify(template, null, 2));
+  syncBuilderPreviewFromTemplate(template);
+  setQueryValidationState("", false);
 }
 
 function normalizeDisplayRecord(record) {
@@ -2470,7 +2997,8 @@ function attachDashboardHandlers() {
   const feedback = document.getElementById("dashboard-feedback");
 
   const operationSelect = document.getElementById("query-operation");
-  const queryEditor = document.getElementById("query-json");
+  const jsonModeButton = document.getElementById("btn-query-mode-json");
+  const builderModeButton = document.getElementById("btn-query-mode-builder");
   const runQueryButton = document.getElementById("btn-run-query");
   const columnSortSelect = document.getElementById("query-column-sort");
   const rowSortSelect = document.getElementById("query-row-sort");
@@ -2638,6 +3166,26 @@ function attachDashboardHandlers() {
     });
   }
 
+  if (jsonModeButton) {
+    jsonModeButton.addEventListener("click", () => {
+      setQueryMode("json");
+      const builderPayload = buildQueryBuilderPayloadFromDom();
+      if (builderPayload) {
+        setQueryEditorValue(JSON.stringify(builderPayload, null, 2));
+      }
+    });
+  }
+
+  if (builderModeButton) {
+    builderModeButton.addEventListener("click", () => {
+      setQueryMode("builder");
+      const editorPayload = validateQueryJson();
+      if (editorPayload) {
+        populateQueryBuilderFromPayload(editorPayload);
+      }
+    });
+  }
+
   if (columnSortSelect) {
     columnSortSelect.addEventListener("change", () => {
       currentColumnSortMode = columnSortSelect.value || "frequency";
@@ -2655,13 +3203,17 @@ function attachDashboardHandlers() {
   if (runQueryButton) {
     runQueryButton.addEventListener("click", async () => {
       clearFeedback(queryFeedback);
-      let payload;
 
-      try {
-        payload = JSON.parse(String(queryEditor?.value || "{}"));
-      } catch {
-        setFeedback(queryFeedback, "Query JSON must be valid JSON.", true);
+      const payload =
+        queryMode === "builder"
+          ? buildQueryBuilderPayloadFromDom()
+          : validateQueryJson();
+      if (!payload) {
         return;
+      }
+
+      if (queryMode === "builder") {
+        setQueryEditorValue(JSON.stringify(payload, null, 2));
       }
 
       if (operationSelect) {
@@ -2753,6 +3305,11 @@ async function initializeDashboard() {
   fieldDetailsSortDirection = "asc";
   fieldDetailsFilter = "all";
   fieldDetailsVisible = false;
+
+  initializeQueryBuilder();
+  initializeQueryEditor();
+
+  setQueryMode("json");
 
   if (statusFilter) statusFilter.value = "all";
   if (toggleDetailsBtn) toggleDetailsBtn.textContent = "View Field Details ->";

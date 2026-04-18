@@ -404,6 +404,125 @@ select:focus {
   margin-bottom: 0.55rem;
 }
 
+.query-mode-toggle {
+  display: inline-flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.15rem 0 0.75rem;
+}
+
+.query-mode-toggle .btn[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.query-mode-panel {
+  margin-bottom: 0.5rem;
+}
+
+.query-builder-card {
+  border: 1px solid #bfd3bc;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fbfff8, #f5fbef);
+  padding: 0.9rem;
+}
+
+.query-builder-header h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1.02rem;
+}
+
+.query-builder-header .meta-text {
+  margin: 0;
+}
+
+.qb-row {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.7rem;
+}
+
+.qb-row input,
+.qb-row select,
+.qb-payload-input {
+  width: 100%;
+}
+
+.qb-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.8rem 0;
+}
+
+.qb-filter-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.1fr) minmax(150px, 0.8fr) minmax(180px, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.55rem;
+}
+
+.qb-filter-row input,
+.qb-filter-row select {
+  width: 100%;
+}
+
+.qb-json-output {
+  margin: 0.55rem 0 0;
+  min-height: 90px;
+  padding: 0.8rem;
+  border-radius: 10px;
+  border: 1px solid #d2decf;
+  background: #ffffff;
+  color: #274135;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.82rem;
+}
+
+.query-editor-shell {
+  margin-bottom: 0.2rem;
+}
+
+.query-editor-shell .CodeMirror {
+  min-height: 180px;
+  height: auto;
+  border: 1px solid #b2c5af;
+  border-radius: 12px;
+  background: #fbfff8;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.87rem;
+  line-height: 1.45;
+}
+
+.query-editor-shell .CodeMirror-scroll {
+  min-height: 180px;
+}
+
+.query-editor-shell .CodeMirror-focused {
+  border-color: #7ba36a;
+  box-shadow: 0 0 0 2px rgba(123, 163, 106, 0.16);
+}
+
+.query-editor-shell .CodeMirror-gutters {
+  background: #f3f8ef;
+  border-right: 1px solid #d2decf;
+}
+
+.query-editor-shell .CodeMirror-linenumber {
+  color: #728270;
+}
+
+.query-editor-shell .CodeMirror.query-editor-invalid,
+.query-editor-shell.query-editor-invalid .CodeMirror {
+  border-color: #ef9a9a;
+  box-shadow: 0 0 0 2px rgba(239, 154, 154, 0.16);
+}
+
 .query-input {
   width: 100%;
   min-height: 180px;
@@ -412,6 +531,12 @@ select:focus {
   font-size: 0.87rem;
   line-height: 1.45;
   margin-bottom: 0.55rem;
+}
+
+.query-json-status {
+  margin-top: 0.35rem;
+  margin-bottom: 0.55rem;
+  min-height: 1.25rem;
 }
 
 .results-panel {
