@@ -244,7 +244,7 @@
         </div>
         <div id="comparative-table-container" style="margin-top: 1.5rem;"></div>
 
-<div class="charts-grid">
+        <div class="charts-grid">
           <div class="chart-box">
             <div style="position: relative; height: 250px; width: 100%;">
               <canvas id="chart-sql-comparison"></canvas>
@@ -262,8 +262,15 @@
           </div>
         </div>
 
-        <div style="margin-top: 2rem;">
-          <div class="chart-box" style="position: relative; height: 350px; width: 100%;">
+        <div class="status-card" style="margin-top: 2rem; padding: 1.5rem; border: 1px solid var(--border); border-radius: 8px; background: #fff;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <div>
+              <h3 style="margin: 0;">Volume Scaling Stress Test</h3>
+              <p style="margin: 0; font-size: 0.85rem; color: var(--muted);">Runs 300 updates in chunks to calculate max throughput.</p>
+            </div>
+            <button id="btn-run-scaling" class="btn btn-secondary" type="button">Run Stress Test</button>
+          </div>
+          <div class="chart-box" style="position: relative; height: 350px; width: 100%; border: none; padding: 0;">
             <canvas id="chart-scaling-throughput"></canvas>
           </div>
         </div>

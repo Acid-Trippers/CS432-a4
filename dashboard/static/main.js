@@ -84,10 +84,6 @@ function renderComparativeAnalysisUI(data) {
     "Cross-Entity (Update) Latency",
     data.update_comparison,
   );
-
-  if (data.scaling_throughput) {
-      renderLineChart('chart-scaling-throughput', 'Sequential Update Throughput Scaling', data.scaling_throughput);
-  }
 }
 
 // Global object to store chart instances so they can be destroyed before re-drawing
@@ -1720,7 +1716,8 @@ function renderPerformanceResult(testName, payload, isError = false) {
     return;
   }
 
-  setPerformanceBadge(testName, "PASS", "pass");
+  const badgeText = testName === "comparative_analysis" ? "COMPLETED" : "PASS";
+  setPerformanceBadge(testName, badgeText, "good");
 }
 
 async function runSingleAcidTest(testName, isAdvanced = false) {
@@ -2564,5 +2561,62 @@ function renderLineChart(canvasId, title, testData) {
       }
   });
 }
+
+// --- Big Boy Scaling Test Logic ---
+async function runScalingTest() {
+  const btn = document.getElementById("btn-run-scaling");
+  if (btn) { btn.disabled = true; btn.textContent = "Running (0%)..."; }
+
+  let customPayload = {};
+  const customEl = document.getElementById("comparative-custom-payload");
+  if (customEl && customEl.value.trim() !== "") {
+    try { customPayload = JSON.parse(customEl.value); } 
+    catch (e) {
+      alert("Custom payload must be valid JSON.");
+      if (btn) { btn.disabled = false; btn.textContent = "Run Stress Test"; }
+      return;
+    }
+  }
+
+  showProgress("Running Volume Scaling Stress Test...");
+  const steps = [20, 40, 60, 80, 100];
+  const testData = { steps: steps, logical_qps: [], direct_qps: [] };
+
+  const bar = document.getElementById("progress-bar-fill");
+  if (bar) bar.style.transition = "width 0.3s ease"; // Make the bar smooth!
+
+  try {
+    for (let i = 0; i < steps.length; i++) {
+      const runs = steps[i];
+      const payload = { runs: runs, ...customPayload };
+
+      // Wait for just this specific chunk to finish
+      const response = await apiPost('/api/developer/performance/scaling_throughput_chunk', payload);
+      const res = response.result;
+      
+      testData.logical_qps.push(res.logical_latency.throughput_ops);
+      testData.direct_qps.push(res.direct_latency.throughput_ops);
+
+      // Update the real progress bar!
+      const percent = Math.round(((i + 1) / steps.length) * 100);
+      if (btn) btn.textContent = `Running (${percent}%)...`;
+      if (bar) bar.style.width = `${percent}%`;
+    }
+
+    renderLineChart('chart-scaling-throughput', 'Sequential Update Throughput Scaling', testData);
+  } catch (error) {
+    alert("Error running scaling test: " + error.message);
+  } finally {
+    hideProgress();
+    if (btn) { btn.disabled = false; btn.textContent = "Run Stress Test"; }
+  }
+}
+
+// Attach the button click listener
+document.addEventListener("click", (e) => {
+  if (e.target && e.target.id === "btn-run-scaling") {
+    runScalingTest();
+  }
+});
 
 boot();

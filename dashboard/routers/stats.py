@@ -617,17 +617,30 @@ def _run_performance_test(test_name: str, custom_payload: dict = None) -> dict[s
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=error_detail)
     
+    # Existing comparative_analysis block...
     if test_name == "comparative_analysis":
         try:
             from performance_Evaluation.comparative_analysis import execute_comparative_analysis
-            return execute_comparative_analysis(custom_payload=custom_payload) # <--- Pass it through!
+            return execute_comparative_analysis(custom_payload=custom_payload)
         except Exception as e:
             import traceback
             error_detail = f"{type(e).__name__}: {str(e)}"
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=error_detail)
 
-    raise HTTPException(status_code=404, detail=f"Unknown performance test: {test_name}")
+    # ---> ADD THIS NEW CHUNKING ENDPOINT <---
+    if test_name == "scaling_throughput_chunk":
+        try:
+            from performance_Evaluation.comparative_analysis import run_cross_entity_update_comparison
+            # Extract how many runs the frontend asked for, default to 20
+            runs = custom_payload.get("runs", 20) if custom_payload else 20
+            return run_cross_entity_update_comparison(runs=runs, custom_payload=custom_payload)
+        except Exception as e:
+            import traceback
+            error_detail = f"{type(e).__name__}: {str(e)}"
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=error_detail)
+    # ----------------------------------------
 
 
 @router.get("/api/developer/performance/tests")

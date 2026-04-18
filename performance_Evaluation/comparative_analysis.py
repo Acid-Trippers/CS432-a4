@@ -229,8 +229,7 @@ def execute_comparative_analysis(custom_payload=None):
     report = {
         "sql_comparison": run_sql_comparison(runs=20),
         "mongo_comparison": run_mongo_comparison(runs=20),
-        "update_comparison": run_cross_entity_update_comparison(runs=10, custom_payload=custom_payload),
-        "scaling_throughput": run_scaling_throughput_test(custom_payload=custom_payload) # <-- Added scaling test
+        "update_comparison": run_cross_entity_update_comparison(runs=10, custom_payload=custom_payload)
     }
     
     out_file = report_dir / f"comparative_analysis_{int(time.time())}.json"
