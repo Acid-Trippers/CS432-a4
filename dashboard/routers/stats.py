@@ -684,8 +684,7 @@ async def run_all_developer_performance_tests():
         "logical_query_update",
         "logical_query_delete",
         "metadata_lookup_overhead",
-        "transaction_coordination_overhead",
-        "comparative_analysis"
+        "transaction_coordination_overhead"
     ]
 
     results = {}

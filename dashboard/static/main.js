@@ -210,6 +210,15 @@ const PERFORMANCE_TESTS = [
   "comparative_analysis",
 ];
 
+const CORE_PERFORMANCE_TESTS = [
+  "logical_query_read",
+  "logical_query_create",
+  "logical_query_update",
+  "logical_query_delete",
+  "metadata_lookup_overhead",
+  "transaction_coordination_overhead",
+];
+
 const ACID_TEST_DETAILS = {
   atomicity: {
     performed:
@@ -2119,13 +2128,7 @@ async function runAllPerformanceTests() {
   clearFeedback(feedback);
   showProgress("Running all performance tests...");
 
-  const testsFromUi = Array.from(
-    document.querySelectorAll(".run-performance-btn[data-perf-test]"),
-  )
-    .map((btn) => btn.getAttribute("data-perf-test"))
-    .filter(Boolean);
-
-  const testsToRun = testsFromUi.length ? testsFromUi : PERFORMANCE_TESTS;
+  const testsToRun = CORE_PERFORMANCE_TESTS;
 
   try {
     // Try preferred backend bulk endpoint first
@@ -2138,7 +2141,7 @@ async function runAllPerformanceTests() {
       }
     });
 
-    setFeedback(feedback, "All manual performance tests completed.", false);
+    setFeedback(feedback, "All core performance tests completed.", false);
     await refreshDeveloperMetricsPage();
   } catch (error) {
     // Fallback: if bulk endpoint is missing (404), run tests one-by-one
@@ -2166,7 +2169,7 @@ async function runAllPerformanceTests() {
         feedback,
         hadAnyFailure
           ? "Run-all fallback finished with some failures."
-          : "All performance tests completed (fallback mode).",
+          : "All core performance tests completed (fallback mode).",
         hadAnyFailure ? "warn" : false,
       );
       await refreshDeveloperMetricsPage();
