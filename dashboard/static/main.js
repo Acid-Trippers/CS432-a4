@@ -33,34 +33,37 @@ function renderComparativeAnalysisUI(data) {
       <thead>
           <tr>
               <th>Operation</th>
-              <th>Logical Abstraction (ms)</th>
-              <th>Direct Database (ms)</th>
-              <th>Framework Overhead</th>
+              <th>Logical (ms)</th>
+              <th>Direct DB (ms)</th>
+              <th>Overhead</th>
+              <th>Logical (ops/sec)</th>
+              <th>Direct (ops/sec)</th>
           </tr>
       </thead>
       <tbody>
   `;
 
   const tests = [
-    { key: "sql_comparison", label: "SQL (Read)" },
-    { key: "mongo_comparison", label: "MongoDB (Read)" },
-    { key: "update_comparison", label: "Cross-Entity (Update)" },
+      { key: 'sql_comparison', label: 'SQL (Read)' },
+      { key: 'mongo_comparison', label: 'MongoDB (Read)' },
+      { key: 'update_comparison', label: 'Cross-Entity (Update)' }
   ];
 
-  tests.forEach((test) => {
-    const result = data[test.key];
-    if (result) {
-      // Highlight overhead: green if under 10ms, warning if higher
-      const badgeClass = result.framework_overhead_ms > 10 ? "warning" : "good";
-      html += `
+  tests.forEach(test => {
+      const result = data[test.key];
+      if (result) {
+          const badgeClass = result.framework_overhead_ms > 10 ? 'warning' : 'good';
+          html += `
           <tr>
               <td><strong>${test.label}</strong></td>
               <td>${result.logical_latency.avg_ms} ms</td>
               <td>${result.direct_latency.avg_ms} ms</td>
               <td><span class="result-badge ${badgeClass}">+${result.framework_overhead_ms} ms</span></td>
+              <td><strong>${result.logical_latency.throughput_ops}</strong></td>
+              <td><strong>${result.direct_latency.throughput_ops}</strong></td>
           </tr>
           `;
-    }
+      }
   });
   html += `</tbody></table>`;
   container.innerHTML = html;
@@ -81,6 +84,10 @@ function renderComparativeAnalysisUI(data) {
     "Cross-Entity (Update) Latency",
     data.update_comparison,
   );
+
+  if (data.scaling_throughput) {
+      renderLineChart('chart-scaling-throughput', 'Sequential Update Throughput Scaling', data.scaling_throughput);
+  }
 }
 
 // Global object to store chart instances so they can be destroyed before re-drawing
@@ -2506,6 +2513,53 @@ function boot() {
   if (isSetupPage()) {
     attachSetupHandlers();
   }
+}
+
+function renderLineChart(canvasId, title, testData) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || !testData) return;
+
+  if (chartInstances[canvasId]) {
+      chartInstances[canvasId].destroy();
+  }
+
+  const ctx = canvas.getContext('2d');
+  chartInstances[canvasId] = new Chart(ctx, {
+      type: 'line',
+      data: {
+          labels: testData.steps.map(s => s + " runs"),
+          datasets: [
+              {
+                  label: 'Logical Framework (ops/s)',
+                  data: testData.logical_qps,
+                  borderColor: '#166534',
+                  backgroundColor: '#166534',
+                  fill: false,
+                  tension: 0.1
+              },
+              {
+                  label: 'Direct DB (ops/s)',
+                  data: testData.direct_qps,
+                  borderColor: '#5d6b7a',
+                  backgroundColor: '#5d6b7a',
+                  fill: false,
+                  tension: 0.1
+              }
+          ]
+      },
+      options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+              legend: { display: true }, // We want the legend here!
+              title: { display: true, text: title, font: { family: 'Space Grotesk', size: 16 } }
+          },
+          scales: {
+              y: { beginAtZero: true, title: { display: true, text: 'Throughput (Operations / Sec)' } },
+              x: { title: { display: true, text: 'Volume of Sequential Updates' } }
+          }
+      }
+  });
 }
 
 boot();

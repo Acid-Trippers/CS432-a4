@@ -22,10 +22,15 @@ def measure_execution_time(func, *args, runs=10, **kwargs):
         func(*args, **kwargs)
         t1 = time.perf_counter()
         latencies.append((t1 - t0) * 1000.0)
+        
+    total_ms = sum(latencies)
+    throughput = runs / (total_ms / 1000.0) if total_ms > 0 else 0
+    
     return {
         "avg_ms": round(statistics.mean(latencies), 3),
         "min_ms": round(min(latencies), 3),
-        "max_ms": round(max(latencies), 3)
+        "max_ms": round(max(latencies), 3),
+        "throughput_ops": round(throughput, 2) # <-- Added throughput
     }
 
 def run_sql_comparison(runs=10):
@@ -177,22 +182,55 @@ def run_cross_entity_update_comparison(runs=5, custom_payload=None):
         direct_latencies.append((t1 - t0) * 1000.0)
         cleanup_temp_record(target_id)
 
+    # Calculate stats
     import statistics
     logical_avg = round(statistics.mean(logical_latencies), 3) if logical_latencies else 0
     direct_avg = round(statistics.mean(direct_latencies), 3) if direct_latencies else 0
 
+    # Add Throughput Math
+    total_logical_ms = sum(logical_latencies)
+    logical_throughput = runs / (total_logical_ms / 1000.0) if total_logical_ms > 0 else 0
+
+    total_direct_ms = sum(direct_latencies)
+    direct_throughput = runs / (total_direct_ms / 1000.0) if total_direct_ms > 0 else 0
+
     return {
-        "logical_latency": {"avg_ms": logical_avg, "min_ms": round(min(logical_latencies), 3) if logical_latencies else 0, "max_ms": round(max(logical_latencies), 3) if logical_latencies else 0},
-        "direct_latency": {"avg_ms": direct_avg, "min_ms": round(min(direct_latencies), 3) if direct_latencies else 0, "max_ms": round(max(direct_latencies), 3) if direct_latencies else 0},
+        "logical_latency": {
+            "avg_ms": logical_avg, 
+            "min_ms": round(min(logical_latencies), 3) if logical_latencies else 0, 
+            "max_ms": round(max(logical_latencies), 3) if logical_latencies else 0,
+            "throughput_ops": round(logical_throughput, 2)
+        },
+        "direct_latency": {
+            "avg_ms": direct_avg, 
+            "min_ms": round(min(direct_latencies), 3) if direct_latencies else 0, 
+            "max_ms": round(max(direct_latencies), 3) if direct_latencies else 0,
+            "throughput_ops": round(direct_throughput, 2)
+        },
         "framework_overhead_ms": round(logical_avg - direct_avg, 3)
     }
+
+def run_scaling_throughput_test(custom_payload=None):
+    """Runs the update test at increasing volumes to plot a line chart."""
+    print("Running Scaling Throughput Test...")
+    steps = [20, 40, 60, 80, 100]
+    results = {"steps": steps, "logical_qps": [], "direct_qps": []}
+
+    for runs in steps:
+        print(f"  Testing {runs} sequential updates...")
+        res = run_cross_entity_update_comparison(runs=runs, custom_payload=custom_payload)
+        results["logical_qps"].append(res["logical_latency"]["throughput_ops"])
+        results["direct_qps"].append(res["direct_latency"]["throughput_ops"])
+
+    return results
 
 def execute_comparative_analysis(custom_payload=None):
     print("Starting Comparative Analysis...")
     report = {
         "sql_comparison": run_sql_comparison(runs=20),
         "mongo_comparison": run_mongo_comparison(runs=20),
-        "update_comparison": run_cross_entity_update_comparison(runs=10, custom_payload=custom_payload)
+        "update_comparison": run_cross_entity_update_comparison(runs=10, custom_payload=custom_payload),
+        "scaling_throughput": run_scaling_throughput_test(custom_payload=custom_payload) # <-- Added scaling test
     }
     
     out_file = report_dir / f"comparative_analysis_{int(time.time())}.json"
