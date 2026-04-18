@@ -21,11 +21,10 @@ let _progressStart = null;
 // Simulated fill: creeps toward 90% while running, jumps to 100% on hideProgress
 let _progressFill = 0;
 
-
 // NEW SHTUFF BY DIVYANSH SHARMA 24110113 HELLO BOYS IF YOU LOOK AT THIS MESSAGE YOU DA REAL ONE
 
 function renderComparativeAnalysisUI(data) {
-  const container = document.getElementById('comparative-table-container');
+  const container = document.getElementById("comparative-table-container");
   if (!container || !data) return;
 
   // 1. Build the HTML Table
@@ -43,17 +42,17 @@ function renderComparativeAnalysisUI(data) {
   `;
 
   const tests = [
-      { key: 'sql_comparison', label: 'SQL (Read)' },
-      { key: 'mongo_comparison', label: 'MongoDB (Read)' },
-      { key: 'update_comparison', label: 'Cross-Entity (Update)' }
+    { key: "sql_comparison", label: "SQL (Read)" },
+    { key: "mongo_comparison", label: "MongoDB (Read)" },
+    { key: "update_comparison", label: "Cross-Entity (Update)" },
   ];
 
-  tests.forEach(test => {
-      const result = data[test.key];
-      if (result) {
-          // Highlight overhead: green if under 10ms, warning if higher
-          const badgeClass = result.framework_overhead_ms > 10 ? 'warning' : 'good';
-          html += `
+  tests.forEach((test) => {
+    const result = data[test.key];
+    if (result) {
+      // Highlight overhead: green if under 10ms, warning if higher
+      const badgeClass = result.framework_overhead_ms > 10 ? "warning" : "good";
+      html += `
           <tr>
               <td><strong>${test.label}</strong></td>
               <td>${result.logical_latency.avg_ms} ms</td>
@@ -61,15 +60,27 @@ function renderComparativeAnalysisUI(data) {
               <td><span class="result-badge ${badgeClass}">+${result.framework_overhead_ms} ms</span></td>
           </tr>
           `;
-      }
+    }
   });
   html += `</tbody></table>`;
   container.innerHTML = html;
 
   // 2. Render the Bar Charts
-  renderComparativeChart('chart-sql-comparison', 'SQL (Read) Latency', data.sql_comparison);
-  renderComparativeChart('chart-mongo-comparison', 'Mongo (Read) Latency', data.mongo_comparison);
-  renderComparativeChart('chart-update-comparison', 'Cross-Entity (Update) Latency', data.update_comparison);
+  renderComparativeChart(
+    "chart-sql-comparison",
+    "SQL (Read) Latency",
+    data.sql_comparison,
+  );
+  renderComparativeChart(
+    "chart-mongo-comparison",
+    "Mongo (Read) Latency",
+    data.mongo_comparison,
+  );
+  renderComparativeChart(
+    "chart-update-comparison",
+    "Cross-Entity (Update) Latency",
+    data.update_comparison,
+  );
 }
 
 // Global object to store chart instances so they can be destroyed before re-drawing
@@ -81,31 +92,40 @@ function renderComparativeChart(canvasId, title, testData) {
 
   // Destroy previous chart instance if the user clicks "Run" multiple times
   if (chartInstances[canvasId]) {
-      chartInstances[canvasId].destroy();
+    chartInstances[canvasId].destroy();
   }
 
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext("2d");
   chartInstances[canvasId] = new Chart(ctx, {
-      type: 'bar',
-      data: {
-          labels: ['Logical Framework', 'Direct DB'],
-          datasets: [{
-              label: 'Average Latency (ms)',
-              data: [testData.logical_latency.avg_ms, testData.direct_latency.avg_ms],
-              backgroundColor: ['#166534', '#5d6b7a'], // Green for logical, Gray for direct
-              borderWidth: 1
-          }]
+    type: "bar",
+    data: {
+      labels: ["Logical Framework", "Direct DB"],
+      datasets: [
+        {
+          label: "Average Latency (ms)",
+          data: [
+            testData.logical_latency.avg_ms,
+            testData.direct_latency.avg_ms,
+          ],
+          backgroundColor: ["#166534", "#5d6b7a"], // Green for logical, Gray for direct
+          borderWidth: 1,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        title: {
+          display: true,
+          text: title,
+          font: { family: "Space Grotesk", size: 14 },
+        },
       },
-      options: {
-          responsive: true,
-          plugins: {
-              legend: { display: false },
-              title: { display: true, text: title, font: { family: 'Space Grotesk', size: 14 } }
-          },
-          scales: {
-              y: { beginAtZero: true, title: { display: true, text: 'Time (ms)' } }
-          }
-      }
+      scales: {
+        y: { beginAtZero: true, title: { display: true, text: "Time (ms)" } },
+      },
+    },
   });
 }
 
@@ -187,7 +207,7 @@ const PERFORMANCE_TESTS = [
   "logical_query_delete",
   "metadata_lookup_overhead",
   "transaction_coordination_overhead",
-  "comparative_analysis"
+  "comparative_analysis",
 ];
 
 const ACID_TEST_DETAILS = {
@@ -549,7 +569,7 @@ function findCountByName(items, nameKey, countKey, targetName) {
 
 function getStoredSessionId() {
   try {
-    const value = localStorage.getItem(SESSION_ID_STORAGE_KEY);
+    const value = sessionStorage.getItem(SESSION_ID_STORAGE_KEY);
     return value && value.trim() ? value.trim() : null;
   } catch {
     return null;
@@ -559,7 +579,7 @@ function getStoredSessionId() {
 function setStoredSessionId(sessionId) {
   if (!sessionId || typeof sessionId !== "string") return;
   try {
-    localStorage.setItem(SESSION_ID_STORAGE_KEY, sessionId.trim());
+    sessionStorage.setItem(SESSION_ID_STORAGE_KEY, sessionId.trim());
   } catch {
     // Ignore storage errors.
   }
@@ -647,7 +667,8 @@ function renderSessionMonitor(payload) {
   if (!body || !counts || !selfLabel) return;
 
   const sessions = Array.isArray(payload?.sessions) ? payload.sessions : [];
-  const currentSessionId = payload?.current_session_id || getStoredSessionId() || "-";
+  const currentSessionId =
+    payload?.current_session_id || getStoredSessionId() || "-";
   const total = Number(payload?.total || 0);
   const active = Number(payload?.active || 0);
   const archived = Number(payload?.archived || 0);
@@ -656,7 +677,8 @@ function renderSessionMonitor(payload) {
   selfLabel.textContent = `Current Session: ${currentSessionId}`;
 
   if (!sessions.length) {
-    body.innerHTML = '<tr><td colspan="6" class="meta-text">No sessions yet.</td></tr>';
+    body.innerHTML =
+      '<tr><td colspan="6" class="meta-text">No sessions yet.</td></tr>';
     setSessionMonitorRefreshedAt("success");
     return;
   }
@@ -679,7 +701,8 @@ function renderSessionMonitor(payload) {
       };
 
       const isCurrent = sessionId === currentSessionId;
-      const normalizedStatus = status.toLowerCase() === "active" ? "active" : "archived";
+      const normalizedStatus =
+        status.toLowerCase() === "active" ? "active" : "archived";
 
       return `
         <tr class="${isCurrent ? "session-row-current" : ""}">
@@ -1137,11 +1160,7 @@ function setKpiCardContent(id, value, subtitle, statusValue = null) {
   card.innerHTML = html;
 }
 
-function renderDashboardStatsBundle(
-  status,
-  stats,
-  pipelineStats,
-) {
+function renderDashboardStatsBundle(status, stats, pipelineStats) {
   // Update SQL and NoSQL connection indicators
   const sqlDot = document.getElementById("sql-status-dot");
   if (sqlDot) {
@@ -1675,10 +1694,9 @@ function renderPerformanceResult(testName, payload, isError = false) {
     details.classList.remove("hidden");
   }
 
-
   if (testName === "comparative_analysis" && payload && !isError) {
     const actualData = payload.result ? payload.result : payload;
-    renderComparativeAnalysisUI(actualData); 
+    renderComparativeAnalysisUI(actualData);
   }
 
   if (isError || payload?.error) {
@@ -1896,8 +1914,12 @@ function renderDeveloperOverviewCards(payload) {
   const fetchMetrics = workflowPerf?.fetch || {};
 
   const initLatencyMs = Number(initMetrics?.latency?.avg_ms || 0).toFixed(3);
-  const initThroughput = Number(initMetrics?.throughput_records_per_sec || 0).toFixed(3);
-  const initBackendTimeMs = Number(initMetrics?.backend_completion_ms || 0).toFixed(3);
+  const initThroughput = Number(
+    initMetrics?.throughput_records_per_sec || 0,
+  ).toFixed(3);
+  const initBackendTimeMs = Number(
+    initMetrics?.backend_completion_ms || 0,
+  ).toFixed(3);
 
   const hasFetched = Boolean(fetchMetrics?.has_fetched);
   const fetchLatencyText = hasFetched
@@ -1953,7 +1975,9 @@ function renderDeveloperOverviewCards(payload) {
   setKpiCardContent(
     "kpi-dev-fetch-backend-time",
     fetchBackendTimeMs,
-    hasFetched ? "Time to storage completion (SQL + Mongo)" : "Run Fetch to populate",
+    hasFetched
+      ? "Time to storage completion (SQL + Mongo)"
+      : "Run Fetch to populate",
   );
   setKpiCardContent(
     "kpi-dev-test-read-latency",
@@ -2028,7 +2052,9 @@ async function refreshDeveloperMetricsPage() {
 
 async function runSinglePerformanceTest(testName) {
   const feedback = document.getElementById("dev-tests-feedback");
-  const button = document.querySelector(`.run-performance-btn[data-perf-test="${testName}"]`);
+  const button = document.querySelector(
+    `.run-performance-btn[data-perf-test="${testName}"]`,
+  );
   const previousText = button?.textContent || "Run Test";
 
   if (button) {
@@ -2046,7 +2072,10 @@ async function runSinglePerformanceTest(testName) {
         requestBody = JSON.parse(customEl.value);
       } catch (e) {
         setFeedback(feedback, "Custom payload must be valid JSON.", true);
-        if (button) { button.disabled = false; button.textContent = previousText; }
+        if (button) {
+          button.disabled = false;
+          button.textContent = previousText;
+        }
         hideProgress();
         return;
       }
@@ -2054,10 +2083,17 @@ async function runSinglePerformanceTest(testName) {
   }
 
   try {
-    const payload = await apiPost(`/api/developer/performance/${testName}`, requestBody);
+    const payload = await apiPost(
+      `/api/developer/performance/${testName}`,
+      requestBody,
+    );
     renderPerformanceResult(testName, payload, false);
   } catch (error) {
-    renderPerformanceResult(testName, { error: String(error.message || error) }, true);
+    renderPerformanceResult(
+      testName,
+      { error: String(error.message || error) },
+      true,
+    );
   } finally {
     hideProgress();
     if (button) {
