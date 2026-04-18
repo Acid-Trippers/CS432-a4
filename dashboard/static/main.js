@@ -2119,10 +2119,20 @@ async function runAllPerformanceTests() {
   clearFeedback(feedback);
   showProgress("Running all performance tests...");
 
+  const testsFromUi = Array.from(
+    document.querySelectorAll(".run-performance-btn[data-perf-test]"),
+  )
+    .map((btn) => btn.getAttribute("data-perf-test"))
+    .filter(Boolean);
+
+  const testsToRun = testsFromUi.length ? testsFromUi : PERFORMANCE_TESTS;
+
   try {
+    // Try preferred backend bulk endpoint first
     const payload = await apiPost("/api/developer/performance/run_all");
     const results = payload?.results || {};
-    PERFORMANCE_TESTS.forEach((testName) => {
+
+    testsToRun.forEach((testName) => {
       if (Object.prototype.hasOwnProperty.call(results, testName)) {
         renderPerformanceResult(testName, results[testName], false);
       }
@@ -2131,7 +2141,38 @@ async function runAllPerformanceTests() {
     setFeedback(feedback, "All manual performance tests completed.", false);
     await refreshDeveloperMetricsPage();
   } catch (error) {
-    setFeedback(feedback, String(error.message || error), true);
+    // Fallback: if bulk endpoint is missing (404), run tests one-by-one
+    const msg = String(error?.message || error);
+    if (msg.includes("404")) {
+      let hadAnyFailure = false;
+
+      for (const testName of testsToRun) {
+        try {
+          const singleResult = await apiPost(
+            `/api/developer/performance/${testName}`,
+          );
+          renderPerformanceResult(testName, singleResult, false);
+        } catch (singleError) {
+          hadAnyFailure = true;
+          renderPerformanceResult(
+            testName,
+            { error: String(singleError?.message || singleError) },
+            true,
+          );
+        }
+      }
+
+      setFeedback(
+        feedback,
+        hadAnyFailure
+          ? "Run-all fallback finished with some failures."
+          : "All performance tests completed (fallback mode).",
+        hadAnyFailure ? "warn" : false,
+      );
+      await refreshDeveloperMetricsPage();
+    } else {
+      setFeedback(feedback, msg, true);
+    }
   } finally {
     hideProgress();
     if (runAllBtn) {

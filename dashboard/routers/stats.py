@@ -674,26 +674,6 @@ async def get_developer_performance_tests():
     }
 
 
-@router.post("/api/developer/performance/{test_name}")
-async def run_developer_performance_test(test_name: str, request: Request):
-    try:
-        body = await request.json()
-    except Exception:
-        body = None
-
-    started = datetime.now(timezone.utc)
-    result = _run_performance_test(test_name, custom_payload=body) # <-- Pass body here
-    finished = datetime.now(timezone.utc)
-
-    return {
-        "test": test_name,
-        "status": "completed",
-        "started_at": started.isoformat().replace("+00:00", "Z"),
-        "completed_at": finished.isoformat().replace("+00:00", "Z"),
-        "result": result,
-    }
-
-
 @router.post("/api/developer/performance/run_all")
 async def run_all_developer_performance_tests():
     """Run all performance tests sequentially for quick developer diagnostics."""
@@ -718,4 +698,24 @@ async def run_all_developer_performance_tests():
         "started_at": started.isoformat().replace("+00:00", "Z"),
         "completed_at": finished.isoformat().replace("+00:00", "Z"),
         "results": results,
+    }
+
+
+@router.post("/api/developer/performance/{test_name}")
+async def run_developer_performance_test(test_name: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+
+    started = datetime.now(timezone.utc)
+    result = _run_performance_test(test_name, custom_payload=body) # <-- Pass body here
+    finished = datetime.now(timezone.utc)
+
+    return {
+        "test": test_name,
+        "status": "completed",
+        "started_at": started.isoformat().replace("+00:00", "Z"),
+        "completed_at": finished.isoformat().replace("+00:00", "Z"),
+        "result": result,
     }
