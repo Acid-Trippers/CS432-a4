@@ -12,7 +12,7 @@ from pymongo import MongoClient
 
 from dashboard.dependencies import is_admin_token_valid
 from dashboard.session_manager import SessionManager
-from dashboard.routers import acid, auth, pipeline, query, sessions, stats
+from dashboard.routers import acid, auth, exploration, pipeline, query, sessions, stats
 from src.config import (
     INITIAL_SCHEMA_FILE,
     METADATA_FILE,
@@ -90,6 +90,7 @@ app.include_router(query.router)
 app.include_router(acid.router)
 app.include_router(auth.router)
 app.include_router(sessions.router)
+app.include_router(exploration.router)
 
 
 @app.get("/", response_class=HTMLResponse)

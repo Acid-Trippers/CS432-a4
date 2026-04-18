@@ -159,8 +159,190 @@
           <div id="query-results" class="hidden"></div>
         </div>
       </section>
+
+      <!-- EXPLORATION FEATURE 1: List Entities -->
+      <section class="dashboard-section status-card" aria-labelledby="entities-title">
+        <div class="section-heading">
+          <h2 id="entities-title">Entities in Session</h2>
+          <button id="btn-refresh-entities" class="btn" type="button">Refresh</button>
+        </div>
+        <p id="entities-loading" class="meta-text">Loading entities...</p>
+        <div id="entities-list" class="hidden">
+          <table class="result-table">
+            <thead>
+              <tr>
+                <th>Entity Name</th>
+                <th>Queries</th>
+                <th>Operations</th>
+                <th>Last Queried</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="entities-tbody">
+            </tbody>
+          </table>
+        </div>
+        <p id="entities-empty" class="meta-text hidden">No entities in session yet.</p>
+        <p id="entities-error" class="feedback error hidden" role="alert"></p>
+      </section>
+
+      <!-- EXPLORATION FEATURE 5: Query History -->
+      <section class="dashboard-section status-card" aria-labelledby="history-title">
+        <div class="section-heading">
+          <h2 id="history-title">Query History</h2>
+          <div class="results-actions">
+            <label class="results-sort-label" for="history-operation-filter">Filter by:</label>
+            <select id="history-operation-filter" class="results-sort-select">
+              <option value="">All Operations</option>
+              <option value="READ">READ</option>
+              <option value="CREATE">CREATE</option>
+              <option value="UPDATE">UPDATE</option>
+              <option value="DELETE">DELETE</option>
+            </select>
+            <select id="history-status-filter" class="results-sort-select">
+              <option value="">All Statuses</option>
+              <option value="success">Success</option>
+              <option value="failed">Failed</option>
+            </select>
+            <button id="btn-refresh-history" class="btn" type="button">Refresh</button>
+          </div>
+        </div>
+        <p id="history-loading" class="meta-text">Loading query history...</p>
+        <div id="history-list" class="hidden">
+          <table class="result-table">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Operation</th>
+                <th>Entity</th>
+                <th>Status</th>
+                <th>Rows</th>
+                <th>Time (ms)</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="history-tbody">
+            </tbody>
+          </table>
+          <div class="pagination-controls">
+            <button id="btn-history-prev" class="btn" type="button">← Previous</button>
+            <span id="history-page-info" class="meta-text"></span>
+            <button id="btn-history-next" class="btn" type="button">Next →</button>
+          </div>
+        </div>
+        <p id="history-empty" class="meta-text hidden">No queries in history.</p>
+        <p id="history-error" class="feedback error hidden" role="alert"></p>
+      </section>
+
+      <!-- EXPLORATION FEATURE 4: Query Results Modal -->
+      <dialog id="query-result-modal" class="custom-modal">
+        <div class="modal-content large">
+          <div class="modal-body">
+            <h2 style="margin: 0 0 1rem 0;">Query Result Details</h2>
+            <div class="result-metadata">
+              <div class="metadata-row">
+                <span class="metadata-label">Query ID:</span>
+                <code id="result-query-id"></code>
+              </div>
+              <div class="metadata-row">
+                <span class="metadata-label">Timestamp:</span>
+                <span id="result-timestamp"></span>
+              </div>
+              <div class="metadata-row">
+                <span class="metadata-label">Operation:</span>
+                <span id="result-operation"></span>
+              </div>
+              <div class="metadata-row">
+                <span class="metadata-label">Entity:</span>
+                <span id="result-entity"></span>
+              </div>
+              <div class="metadata-row">
+                <span class="metadata-label">Status:</span>
+                <span id="result-status"></span>
+              </div>
+            </div>
+            <div class="result-payload">
+              <h3>Payload</h3>
+              <pre id="result-payload-json" class="code-block"></pre>
+            </div>
+            <div id="result-data-section" class="result-data-section hidden">
+              <h3>Result Data</h3>
+              <div id="result-data-table"></div>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button id="btn-result-close" type="button" class="btn">Close</button>
+          </div>
+        </div>
+      </dialog>
+
+      <!-- EXPLORATION FEATURE 2 & 3: Entity Details Modal -->
+      <dialog id="entity-details-modal" class="custom-modal">
+        <div class="modal-content large">
+          <div class="modal-body">
+            <h2 style="margin: 0 0 0.5rem 0;">Entity: <span id="entity-name-header"></span></h2>
+            <div class="modal-tabs">
+              <button class="tab-button active" data-tab="schema">Schema</button>
+              <button class="tab-button" data-tab="instances">Instances</button>
+            </div>
+
+            <!-- Schema Tab -->
+            <div id="tab-schema" class="tab-content active">
+              <div class="result-table-wrap">
+                <table class="result-table">
+                  <thead>
+                    <tr>
+                      <th>Field Name</th>
+                      <th>Type</th>
+                      <th>Routing</th>
+                      <th>Frequency</th>
+                      <th>Cardinality</th>
+                      <th>Stability</th>
+                    </tr>
+                  </thead>
+                  <tbody id="schema-tbody">
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Instances Tab -->
+            <div id="tab-instances" class="tab-content hidden">
+              <div class="instances-controls">
+                <label class="field-label" for="instances-limit">Records per page:</label>
+                <select id="instances-limit">
+                  <option value="10">10</option>
+                  <option value="20" selected>20</option>
+                  <option value="50">50</option>
+                </select>
+                <label class="field-label" for="instances-source">From:</label>
+                <select id="instances-source">
+                  <option value="BOTH" selected>Both (SQL & NoSQL)</option>
+                  <option value="SQL">SQL Only</option>
+                  <option value="MONGO">NoSQL Only</option>
+                </select>
+                <button id="btn-load-instances" class="btn btn-primary">Load Data</button>
+              </div>
+              <div id="instances-loading" class="meta-text hidden">Loading instances...</div>
+              <div id="instances-data" class="hidden">
+                <div id="instances-table"></div>
+                <div class="pagination-controls">
+                  <button id="btn-instances-prev" class="btn" type="button">← Previous</button>
+                  <span id="instances-page-info" class="meta-text"></span>
+                  <button id="btn-instances-next" class="btn" type="button">Next →</button>
+                </div>
+              </div>
+              <p id="instances-empty" class="meta-text hidden">No instances to display.</p>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button id="btn-entity-close" type="button" class="btn">Close</button>
+          </div>
+        </div>
+      </dialog>
     </main>
 
     <script src="/static/main.js"></script>
+    <script src="/static/exploration-ui.js"></script>
   </body>
 </html>

@@ -300,6 +300,26 @@ class SessionManager:
                 "status": result.get("status") if isinstance(result, dict) else None,
                 "metrics": result.get("metrics") if isinstance(result, dict) else None,
             }
+            
+            # For READ operations, include actual data and row count
+            if isinstance(result, dict):
+                operation = result.get("operation")
+                if operation == "READ" and "data" in result:
+                    read_data = result.get("data")
+                    if isinstance(read_data, dict):
+                        row_count = len(read_data)
+                    elif isinstance(read_data, list):
+                        row_count = len(read_data)
+                    else:
+                        row_count = 0
+                    summary["row_count"] = row_count
+                    summary["data"] = read_data
+                elif operation in {"CREATE", "UPDATE", "DELETE"}:
+                    if "affected_records" in result:
+                        summary["affected_records"] = result.get("affected_records")
+                    if "changes_summary" in result:
+                        summary["changes_summary"] = result.get("changes_summary")
+            
             if error:
                 summary["error"] = error
 
@@ -584,6 +604,138 @@ class SessionManager:
             result["transaction_count"] = len(tx_history)
             result["location"] = location
             return result
+
+    def get_entities_in_session(self, session_id: str) -> list[dict[str, Any]]:
+        """
+        Extract unique entities from a session's query history.
+        Returns list of entity objects with query stats.
+        """
+        session = self.get_session(session_id)
+        if not session:
+            return []
+
+        query_history = session.get("query_history", [])
+        if not isinstance(query_history, list):
+            return []
+
+        entities: dict[str, dict[str, Any]] = {}
+        for query_entry in query_history:
+            if not isinstance(query_entry, dict):
+                continue
+
+            payload = query_entry.get("payload")
+            if not isinstance(payload, dict):
+                continue
+
+            entity_name = payload.get("entity")
+            if not entity_name:
+                continue
+
+            if entity_name not in entities:
+                entities[entity_name] = {
+                    "entity_name": entity_name,
+                    "query_count": 0,
+                    "operations": [],
+                    "last_queried": None,
+                }
+
+            entities[entity_name]["query_count"] += 1
+            operation = payload.get("operation")
+            if operation and operation not in entities[entity_name]["operations"]:
+                entities[entity_name]["operations"].append(operation)
+
+            query_at = query_entry.get("at")
+            if query_at:
+                parsed_time = self._parse_iso(query_at)
+                if parsed_time:
+                    current_last = self._parse_iso(entities[entity_name]["last_queried"]) if entities[entity_name]["last_queried"] else None
+                    if current_last is None or parsed_time > current_last:
+                        entities[entity_name]["last_queried"] = query_at
+
+        result = list(entities.values())
+        result.sort(key=lambda x: self._parse_iso(x.get("last_queried")) or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+        return result
+
+    def get_query_history_paginated(
+        self,
+        session_id: str,
+        limit: int = 50,
+        offset: int = 0,
+        operation_filter: str | None = None,
+        entity_filter: str | None = None,
+        status_filter: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get paginated query history from a session with optional filters.
+        """
+        session = self.get_session(session_id)
+        if not session:
+            return {"total": 0, "queries": []}
+
+        query_history = session.get("query_history", [])
+        if not isinstance(query_history, list):
+            return {"total": 0, "queries": []}
+
+        # Filter queries
+        filtered_queries = []
+        for query_entry in query_history:
+            if not isinstance(query_entry, dict):
+                continue
+
+            payload = query_entry.get("payload", {})
+            result = query_entry.get("result", {})
+
+            if operation_filter:
+                if isinstance(payload, dict):
+                    if payload.get("operation", "").upper() != operation_filter.upper():
+                        continue
+
+            if entity_filter:
+                if isinstance(payload, dict):
+                    if payload.get("entity", "") != entity_filter:
+                        continue
+
+            if status_filter:
+                if result.get("status", "").lower() != status_filter.lower():
+                    continue
+
+            filtered_queries.append(query_entry)
+
+        # Sort by most recent first
+        filtered_queries.sort(
+            key=lambda x: self._parse_iso(x.get("at")) or datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True
+        )
+
+        # Paginate
+        total = len(filtered_queries)
+        paginated = filtered_queries[offset : offset + limit]
+
+        result_list = []
+        for query_entry in paginated:
+            payload = query_entry.get("payload", {})
+            result = query_entry.get("result", {})
+            metrics = result.get("metrics", {})
+
+            result_list.append({
+                "query_id": query_entry.get("query_id"),
+                "timestamp": query_entry.get("at"),
+                "operation": payload.get("operation") if isinstance(payload, dict) else None,
+                "entity": payload.get("entity") if isinstance(payload, dict) else None,
+                "status": query_entry.get("status") or result.get("status"),
+                "row_count": result.get("row_count") if result.get("operation") == "READ" else result.get("affected_records"),
+                "execution_time_ms": metrics.get("execution_time_ms") if isinstance(metrics, dict) else None,
+                "filters": payload.get("filters") if isinstance(payload, dict) else None,
+                "columns": payload.get("columns") if isinstance(payload, dict) else None,
+                "error": query_entry.get("error"),
+            })
+
+        return {
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "queries": result_list,
+        }
 
     def clear_all_sessions(self) -> None:
         with self._state_lock:
