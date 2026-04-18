@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>User Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/style.css?v=7" />
+  </head>
+  <body>
+    <main id="dashboard-root" class="dashboard-shell" data-role="user">
+      <header class="dashboard-header status-card">
+        <div>
+          <p class="eyebrow">Normal User Session</p>
+          <h1>User Dashboard</h1>
+          <p class="subtitle">
+            Session: {{ session_title }} · CRUD, fetch, and basic stats.
+          </p>
+        </div>
+
+        <div class="header-actions">
+          <div class="state-row compact">
+            <span>Project Status</span>
+            <strong id="dashboard-state" class="state-pill">Initialized</strong>
+          </div>
+          <div class="db-status-mini">
+            <span class="meta-text" title="Relational Backend"
+              ><span
+                id="sql-status-dot"
+                class="status-dot offline"
+                aria-hidden="true"
+              ></span>
+              SQL</span
+            >
+            <span class="meta-text" title="Document Backend"
+              ><span
+                id="mongo-status-dot"
+                class="status-dot offline"
+                aria-hidden="true"
+              ></span>
+              NoSQL</span
+            >
+          </div>
+          <div class="header-button-row">
+            <button
+              id="btn-fetch-more-toggle"
+              class="btn btn-primary"
+              type="button"
+            >
+              Fetch More
+            </button>
+            <a class="btn" href="/">Back to Welcome</a>
+          </div>
+        </div>
+      </header>
+
+      <section
+        id="fetch-form-inline"
+        class="status-card inline-fetch-form hidden"
+      >
+        <p class="eyebrow">Fetch Incremental Records</p>
+        <div class="inline-form-row">
+          <label class="field-label" for="fetch-count">Record count</label>
+          <input id="fetch-count" type="number" min="1" value="100" />
+          <button id="btn-run-fetch" class="btn btn-primary" type="button">
+            Run Fetch
+          </button>
+        </div>
+      </section>
+
+      <p id="dashboard-feedback" class="feedback hidden" role="status"></p>
+
+      <section
+        class="dashboard-section status-card"
+        aria-labelledby="stats-title"
+      >
+        <div class="section-heading">
+          <h2 id="stats-title">Stats</h2>
+          <span id="stats-refreshed-at" class="meta-text"
+            >Awaiting refresh...</span
+          >
+        </div>
+        <div class="stats-kpi-grid">
+          <article class="kpi-card" id="kpi-total-records"></article>
+          <article class="kpi-card" id="kpi-active-fields"></article>
+          <article class="kpi-card" id="kpi-active-fields-breakdown"></article>
+          <article class="kpi-card" id="kpi-data-density"></article>
+          <article class="kpi-card" id="kpi-last-fetch"></article>
+          <article class="kpi-card" id="kpi-transactions"></article>
+        </div>
+      </section>
+
+      <section
+        class="dashboard-section status-card"
+        aria-labelledby="query-title"
+      >
+        <div class="section-heading">
+          <h2 id="query-title">Query Interface</h2>
+        </div>
+
+        <div class="query-controls">
+          <label class="field-label" for="query-operation">Operation</label>
+          <select id="query-operation">
+            <option value="READ">READ</option>
+            <option value="CREATE">CREATE</option>
+            <option value="UPDATE">UPDATE</option>
+            <option value="DELETE">DELETE</option>
+          </select>
+          <button id="btn-run-query" class="btn btn-primary" type="button">
+            Run Query
+          </button>
+        </div>
+
+        <label class="field-label" for="query-json">Query JSON</label>
+        <textarea
+          id="query-json"
+          class="query-input"
+          spellcheck="false"
+        ></textarea>
+        <p id="query-feedback" class="feedback hidden" role="status"></p>
+
+        <div class="results-panel">
+          <div class="section-heading compact">
+            <h3>Results</h3>
+            <div class="results-actions">
+              <label class="results-sort-label" for="query-column-sort"
+                >Columns</label
+              >
+              <select
+                id="query-column-sort"
+                class="results-sort-select"
+                aria-label="Column sort mode"
+              >
+                <option value="frequency" selected>Frequency</option>
+                <option value="alphabetical">A-Z</option>
+                <option value="original">Original</option>
+              </select>
+              <label class="results-sort-label" for="query-row-sort"
+                >Rows</label
+              >
+              <select
+                id="query-row-sort"
+                class="results-sort-select"
+                aria-label="Row sort column"
+              >
+                <option value="">No row sort</option>
+              </select>
+              <button id="btn-download-json" class="btn" type="button" disabled>
+                Download JSON
+              </button>
+            </div>
+          </div>
+          <p id="query-empty" class="meta-text">Run a query to view results.</p>
+          <div id="query-results" class="hidden"></div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/main.js"></script>
+  </body>
+</html>

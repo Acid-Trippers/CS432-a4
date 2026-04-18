@@ -96,12 +96,20 @@ class SessionManager:
         stamp = now_iso or self._now_iso()
         return {
             "session_id": session_id,
+            "title": "Untitled Session",
             "status": "active",
             "started_at": stamp,
             "last_active": stamp,
             "query_history": [],
             "transaction_history": [],
         }
+
+    @staticmethod
+    def _normalize_title(title: str | None) -> str:
+        if not isinstance(title, str):
+            return "Untitled Session"
+        normalized = title.strip()
+        return normalized[:120] if normalized else "Untitled Session"
 
     def _trim_histories(self, session_obj: dict[str, Any]) -> None:
         query_history = session_obj.get("query_history")
@@ -174,6 +182,7 @@ class SessionManager:
                 restored = archive.pop(resolved_id)
                 if not isinstance(restored, dict):
                     restored = self._default_session(resolved_id, now_iso)
+                restored["title"] = self._normalize_title(restored.get("title"))
                 restored["status"] = "active"
                 restored["last_active"] = now_iso
                 restored.pop("archived_at", None)
@@ -185,6 +194,7 @@ class SessionManager:
                 current = active[resolved_id]
                 if not isinstance(current, dict):
                     current = self._default_session(resolved_id, now_iso)
+                current["title"] = self._normalize_title(current.get("title"))
                 current["status"] = "active"
                 current["last_active"] = now_iso
                 self._trim_histories(current)
@@ -201,11 +211,40 @@ class SessionManager:
             session_obj = active.get(session_id)
             if not isinstance(session_obj, dict):
                 session_obj = self._default_session(session_id, now_iso)
+            session_obj["title"] = self._normalize_title(session_obj.get("title"))
             session_obj["status"] = "active"
             session_obj["last_active"] = now_iso
             self._trim_histories(session_obj)
             active[session_id] = session_obj
             self._atomic_write_json(self.active_file, active)
+
+    def create_session(self, title: str | None = None) -> dict[str, Any]:
+        with self._state_lock:
+            new_id = str(uuid.uuid4())
+            now_iso = self._now_iso()
+
+            active = self._read_json_dict(self.active_file)
+            while new_id in active:
+                new_id = str(uuid.uuid4())
+
+            session_obj = self._default_session(new_id, now_iso)
+            session_obj["title"] = self._normalize_title(title)
+            active[new_id] = session_obj
+            self._atomic_write_json(self.active_file, active)
+
+            return copy.deepcopy(session_obj)
+
+    def set_session_title(self, session_id: str, title: str | None) -> dict[str, Any] | None:
+        with self._state_lock:
+            active = self._read_json_dict(self.active_file)
+            session_obj = active.get(session_id)
+            if not isinstance(session_obj, dict):
+                return None
+
+            session_obj["title"] = self._normalize_title(title)
+            active[session_id] = session_obj
+            self._atomic_write_json(self.active_file, active)
+            return copy.deepcopy(session_obj)
 
     def log_query_start(self, session_id: str, payload: dict[str, Any]) -> str:
         with self._state_lock:
@@ -478,6 +517,7 @@ class SessionManager:
 
             def _build_view(session_obj: dict[str, Any], location: str) -> dict[str, Any]:
                 record = copy.deepcopy(session_obj)
+                record["title"] = self._normalize_title(record.get("title"))
                 queries = record.get("query_history")
                 txs = record.get("transaction_history")
                 if not isinstance(queries, list):
@@ -530,6 +570,7 @@ class SessionManager:
                 return None
 
             result = copy.deepcopy(raw)
+            result["title"] = self._normalize_title(result.get("title"))
             query_history = result.get("query_history")
             tx_history = result.get("transaction_history")
             if not isinstance(query_history, list):

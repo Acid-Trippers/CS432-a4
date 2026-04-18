@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Request, HTTPException, Response
 import httpx
 from pathlib import Path
 
-from dashboard.dependencies import get_session_id
+from dashboard.dependencies import get_session_id, require_admin
 from src.config import (
     API_HOST,
     INITIAL_SCHEMA_FILE,
@@ -483,6 +483,7 @@ async def get_sessions_stats(
     request: Request,
     response: Response,
     session_id: str = Depends(get_session_id),
+    _: str = Depends(require_admin),
 ):
     response.headers["X-Session-ID"] = session_id
     session_manager = request.app.state.session_manager
@@ -503,6 +504,7 @@ async def get_single_session_stats(
     request: Request,
     response: Response,
     session_id: str = Depends(get_session_id),
+    _: str = Depends(require_admin),
 ):
     response.headers["X-Session-ID"] = session_id
     session_manager = request.app.state.session_manager
@@ -517,7 +519,10 @@ async def get_single_session_stats(
 
 
 @router.get("/api/developer/metrics")
-async def get_developer_metrics(request: Request):
+async def get_developer_metrics(
+    request: Request,
+    _: str = Depends(require_admin),
+):
     """Developer-only metrics payload for dashboard diagnostics and performance reports."""
     fields = _load_metadata_fields()
     return {
@@ -644,7 +649,9 @@ def _run_performance_test(test_name: str, custom_payload: dict = None) -> dict[s
 
 
 @router.get("/api/developer/performance/tests")
-async def get_developer_performance_tests():
+async def get_developer_performance_tests(
+    _: str = Depends(require_admin),
+):
     """List available performance tests for developer dashboard cards."""
     return {
         "tests": [
@@ -714,7 +721,11 @@ async def run_all_developer_performance_tests():
 
 
 @router.post("/api/developer/performance/{test_name}")
-async def run_developer_performance_test(test_name: str, request: Request):
+async def run_developer_performance_test(
+    test_name: str,
+    request: Request,
+    _: str = Depends(require_admin),
+):
     try:
         body = await request.json()
     except Exception:

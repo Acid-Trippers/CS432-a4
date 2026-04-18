@@ -134,6 +134,14 @@ select:focus {
   margin-top: 0.75rem;
 }
 
+.landing-card {
+  max-width: 900px;
+}
+
+.role-grid .btn {
+  min-height: 48px;
+}
+
 .btn {
   display: inline-flex;
   align-items: center;

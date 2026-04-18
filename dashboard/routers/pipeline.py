@@ -8,7 +8,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
-from dashboard.dependencies import get_session_id
+from dashboard.dependencies import get_session_id, require_admin
 from src.config import DATA_DIR, INITIAL_SCHEMA_FILE
 from src.phase_5.sql_engine import SQLEngine
 from src.phase_6.conflict_detector import get_conflict_detector
@@ -131,6 +131,7 @@ async def save_schema(
     request: Request,
     response: Response,
     session_id: str = Depends(get_session_id),
+    _: str = Depends(require_admin),
 ):
     _attach_session_header(response, session_id)
     _enter_pipeline_or_raise(request)
@@ -163,6 +164,7 @@ async def run_initialise(
     response: Response,
     count: int = Query(default=1000, ge=0),
     session_id: str = Depends(get_session_id),
+    _: str = Depends(require_admin),
 ):
     _attach_session_header(response, session_id)
     _enter_pipeline_or_raise(request)
@@ -239,6 +241,7 @@ async def reset_everything(
     response: Response,
     wipe_schema: bool = Query(default=False),
     session_id: str = Depends(get_session_id),
+    _: str = Depends(require_admin),
 ):
     _attach_session_header(response, session_id)
     _enter_pipeline_or_raise(request)

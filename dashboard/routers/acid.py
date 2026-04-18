@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
-from dashboard.dependencies import get_session_id
+from dashboard.dependencies import get_session_id, require_admin
 
 
 router = APIRouter(prefix="/api/acid")
@@ -10,6 +10,7 @@ router = APIRouter(prefix="/api/acid")
 async def run_all_acid_tests(
     response: Response,
     session_id: str = Depends(get_session_id),
+    _: str = Depends(require_admin),
 ):
     response.headers["X-Session-ID"] = session_id
     try:
@@ -25,6 +26,7 @@ async def run_single_advanced_test(
     test_name: str,
     response: Response,
     session_id: str = Depends(get_session_id),
+    _: str = Depends(require_admin),
 ):
     response.headers["X-Session-ID"] = session_id
     try:
@@ -41,6 +43,7 @@ async def run_single_acid_test(
     response: Response,
     crash_check: bool = Query(False),
     session_id: str = Depends(get_session_id),
+    _: str = Depends(require_admin),
 ):
     response.headers["X-Session-ID"] = session_id
     try:
