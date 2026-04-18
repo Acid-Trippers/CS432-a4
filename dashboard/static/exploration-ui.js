@@ -270,7 +270,6 @@ async function loadEntitySchema(entityName) {
         <tr>
           <td><strong>${escapeHtml(field.field_name)}</strong></td>
           <td class="meta-text">${field.dominant_type}</td>
-          <td><span class="routing-badge ${field.routing?.toLowerCase()}">${field.routing}</span></td>
           <td>${(field.frequency * 100).toFixed(1)}%</td>
           <td>${field.cardinality ? field.cardinality.toFixed(3) : "—"}</td>
           <td>${field.type_stability ? (field.type_stability * 100).toFixed(0) + "%" : "—"}</td>
