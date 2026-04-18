@@ -1,5 +1,4 @@
 services:
-
   # ── PostgreSQL ─────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16
@@ -8,11 +7,20 @@ services:
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: secret
-      POSTGRES_DB: cs432_db
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secret}
+      POSTGRES_DB: ${POSTGRES_DB:-cs432_db}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-cs432_db}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
   # ── MongoDB ────────────────────────────────────────────────────────────────
   mongo:
@@ -22,10 +30,19 @@ services:
     ports:
       - "27017:27017"
     environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: secret
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-secret}
     volumes:
       - mongo_data:/data/db
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'mongosh --quiet --username ${MONGO_INITDB_ROOT_USERNAME:-admin} --password ${MONGO_INITDB_ROOT_PASSWORD:-secret} --authenticationDatabase admin --eval "quit(db.adminCommand({ ping: 1 }).ok ? 0 : 1)"',
+        ]
+      interval: 5s
+      timeout: 10s
+      retries: 20
 
   # ── External API (external/app.py) ─────────────────────────────────────────
   api:
@@ -37,25 +54,37 @@ services:
       - "8000:8000"
     volumes:
       - ./data:/app/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request; urllib.request.urlopen(''http://127.0.0.1:8000/'', timeout=3)"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
 
   # ── Main Pipeline ──────────────────────────────────────────────────────────
   pipeline:
     build: .
     container_name: cs432_pipeline
     depends_on:
-      - postgres
-      - mongo
-      - api
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      api:
+        condition: service_healthy
     stdin_open: true
     tty: true
     environment:
-      POSTGRES_URI: postgresql://admin:secret@postgres:5432/cs432_db
-      MONGO_URI: mongodb://admin:secret@mongo:27017/
-      MONGO_DB_NAME: cs432_db
-      API_HOST: http://api:8000
+      POSTGRES_URI: ${POSTGRES_URI:-postgresql://admin:secret@postgres:5432/cs432_db}
+      MONGO_URI: ${MONGO_URI:-mongodb://admin:secret@mongo:27017/}
+      MONGO_DB_NAME: ${MONGO_DB_NAME:-cs432_db}
+      API_HOST: ${API_HOST:-http://api:8000}
     volumes:
       - ./data:/app/data
-    command: [ "tail", "-f", "/dev/null" ]
+    command: ["tail", "-f", "/dev/null"]
 
 volumes:
   postgres_data:
