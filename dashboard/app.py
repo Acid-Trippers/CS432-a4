@@ -2,15 +2,17 @@ from contextlib import asynccontextmanager
 import json
 import os
 from pathlib import Path
+import uuid
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pymongo import MongoClient
 
+from dashboard.dependencies import is_admin_token_valid
 from dashboard.session_manager import SessionManager
-from dashboard.routers import acid, pipeline, query, stats
+from dashboard.routers import acid, auth, pipeline, query, sessions, stats
 from src.config import (
     INITIAL_SCHEMA_FILE,
     METADATA_FILE,
@@ -59,6 +61,7 @@ async def lifespan(app: FastAPI):
     app.state.coordinator = coordinator
     app.state.session_manager = session_manager
     app.state.pipeline_busy = False
+    app.state.admin_tokens = set()
 
     try:
         yield
@@ -85,6 +88,8 @@ app.include_router(stats.router)
 app.include_router(pipeline.router)
 app.include_router(query.router)
 app.include_router(acid.router)
+app.include_router(auth.router)
+app.include_router(sessions.router)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -94,6 +99,9 @@ async def index(request: Request):
 
 @app.get("/setup", response_class=HTMLResponse)
 async def setup(request: Request):
+    if not is_admin_token_valid(request):
+        return RedirectResponse(url="/", status_code=307)
+
     schema_payload = {
         "entities": {
             "example_entity": {
@@ -125,9 +133,39 @@ async def setup(request: Request):
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_home(request: Request):
+    return RedirectResponse(url="/", status_code=307)
+
+
+@app.get("/dashboard/admin", response_class=HTMLResponse)
+async def dashboard_admin(request: Request):
+    if not is_admin_token_valid(request):
+        return RedirectResponse(url="/", status_code=307)
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
 
 @app.get("/dashboard/developer", response_class=HTMLResponse)
 async def developer_dashboard(request: Request):
+    if not is_admin_token_valid(request):
+        return RedirectResponse(url="/", status_code=307)
     return templates.TemplateResponse("dashboard_developer.html", {"request": request})
+
+
+@app.get("/dashboard/{session_id}", response_class=HTMLResponse)
+async def dashboard_user(request: Request, session_id: str):
+    try:
+        normalized_session_id = str(uuid.UUID(session_id))
+    except ValueError:
+        return RedirectResponse(url="/", status_code=307)
+
+    session_view = request.app.state.session_manager.get_session(normalized_session_id)
+    if session_view is None:
+        return RedirectResponse(url="/", status_code=307)
+
+    return templates.TemplateResponse(
+        "dashboard_user.html",
+        {
+            "request": request,
+            "session_id": normalized_session_id,
+            "session_title": session_view.get("title") or "Untitled Session",
+        },
+    )

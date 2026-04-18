@@ -33,6 +33,9 @@ MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME", "cs432_db")
 # External API
 API_HOST = os.environ.get("API_HOST", "http://127.0.0.1:8000")
 
+# Dashboard admin access
+ADMIN_PASS = os.environ.get("ADMIN_PASS", "admin123")
+
 # Other data files
 COUNTER_FILE = os.path.join(DATA_DIR, "counter.txt")
 

@@ -20,6 +20,7 @@ let _progressTimer = null;
 let _progressStart = null;
 // Simulated fill: creeps toward 90% while running, jumps to 100% on hideProgress
 let _progressFill = 0;
+let latestLandingStatus = null;
 
 // NEW SHTUFF BY DIVYANSH SHARMA 24110113 HELLO BOYS IF YOU LOOK AT THIS MESSAGE YOU DA REAL ONE
 
@@ -492,6 +493,12 @@ function isDashboardPage() {
   return Boolean(document.getElementById("dashboard-root"));
 }
 
+function getDashboardRole() {
+  const root = document.getElementById("dashboard-root");
+  const role = String(root?.dataset?.role || "admin").toLowerCase();
+  return role === "user" ? "user" : "admin";
+}
+
 function isDeveloperMetricsPage() {
   return Boolean(document.getElementById("developer-metrics-root"));
 }
@@ -599,6 +606,14 @@ function setStoredSessionId(sessionId) {
   } catch {
     // Ignore storage errors.
   }
+}
+
+function syncSessionIdFromDashboardPath() {
+  const match = window.location.pathname.match(
+    /^\/dashboard\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$/,
+  );
+  if (!match) return;
+  setStoredSessionId(match[1]);
 }
 
 function buildSessionHeaders(existingHeaders = {}) {
@@ -805,11 +820,8 @@ function normalizeState(stateValue) {
 
 function setButtonsDisabled(disabled) {
   const controls = [
-    document.getElementById("btn-setup"),
-    document.getElementById("btn-initialise"),
-    document.getElementById("btn-dashboard"),
-    document.getElementById("btn-reset"),
-    document.getElementById("init-count"),
+    document.getElementById("btn-role-admin"),
+    document.getElementById("btn-role-user"),
   ];
 
   controls.forEach((control) => {
@@ -818,14 +830,12 @@ function setButtonsDisabled(disabled) {
 }
 
 function applyLandingState(status, stats) {
+  latestLandingStatus = status;
   const stateLabel = document.getElementById("pipeline-state");
   const busyNotice = document.getElementById("pipeline-busy");
   const warning = document.getElementById("external-api-warning");
-  const initCountRow = document.getElementById("init-count-row");
-
-  const setupBtn = document.getElementById("btn-setup");
-  const initialiseBtn = document.getElementById("btn-initialise");
-  const dashboardBtn = document.getElementById("btn-dashboard");
+  const lockMessage = document.getElementById("user-lock-message");
+  const userBtn = document.getElementById("btn-role-user");
 
   if (stateLabel)
     stateLabel.textContent = normalizeState(status.pipeline_state);
@@ -838,21 +848,15 @@ function applyLandingState(status, stats) {
     warning.classList.toggle("hidden", externalReachable || pipelineBusy);
   }
 
-  if (setupBtn) setupBtn.classList.add("hidden");
-  if (initialiseBtn) initialiseBtn.classList.add("hidden");
-  if (dashboardBtn) dashboardBtn.classList.add("hidden");
-  if (initCountRow) initCountRow.classList.add("hidden");
-
-  if (status.pipeline_state === "initialized") {
-    if (dashboardBtn) dashboardBtn.classList.remove("hidden");
-  } else if (status.pipeline_state === "schema_ready") {
-    if (initialiseBtn) initialiseBtn.classList.remove("hidden");
-    if (initCountRow) initCountRow.classList.remove("hidden");
-  } else {
-    if (setupBtn) setupBtn.classList.remove("hidden");
+  const canUseUserFlow = status.pipeline_state === "initialized";
+  if (lockMessage) {
+    lockMessage.classList.toggle("hidden", canUseUserFlow);
   }
 
   setButtonsDisabled(pipelineBusy);
+  if (userBtn) {
+    userBtn.disabled = pipelineBusy || !canUseUserFlow;
+  }
 }
 
 async function refreshLanding() {
@@ -887,70 +891,186 @@ function startBusyPolling() {
 }
 
 function attachLandingHandlers() {
-  const setupBtn = document.getElementById("btn-setup");
-  const initialiseBtn = document.getElementById("btn-initialise");
-  const dashboardBtn = document.getElementById("btn-dashboard");
-  const resetBtn = document.getElementById("btn-reset");
-  const initCount = document.getElementById("init-count");
+  const adminBtn = document.getElementById("btn-role-admin");
+  const userBtn = document.getElementById("btn-role-user");
+
+  const adminDialog = document.getElementById("admin-dialog");
+  const adminPasswordInput = document.getElementById("admin-password");
+  const adminLoginBtn = document.getElementById("btn-admin-login");
+  const adminCancelBtn = document.getElementById("btn-admin-cancel");
+  const adminFeedback = document.getElementById("admin-login-feedback");
+
+  const sessionDialog = document.getElementById("session-dialog");
+  const createSessionBtn = document.getElementById("btn-create-session");
+  const refreshSessionsBtn = document.getElementById("btn-refresh-sessions");
+  const closeSessionBtn = document.getElementById("btn-session-cancel");
+  const sessionTitleInput = document.getElementById("new-session-title");
+  const sessionsList = document.getElementById("existing-sessions-list");
+  const sessionFeedback = document.getElementById("session-dialog-feedback");
   const feedback = document.getElementById("landing-message");
 
-  if (setupBtn) {
-    setupBtn.addEventListener("click", () => {
-      window.location.href = "/setup";
+  const closeDialog = (dialog) => {
+    if (dialog && dialog.open) {
+      dialog.close();
+    }
+  };
+
+  const openDialog = (dialog) => {
+    if (dialog && typeof dialog.showModal === "function") {
+      dialog.showModal();
+    }
+  };
+
+  const redirectAdminByState = (pipelineState) => {
+    if (pipelineState === "initialized") {
+      window.location.href = "/dashboard/admin";
+      return;
+    }
+    window.location.href = "/setup";
+  };
+
+  const renderSessionsList = (payload) => {
+    if (!sessionsList) return;
+    const sessions = Array.isArray(payload?.sessions) ? payload.sessions : [];
+
+    if (!sessions.length) {
+      sessionsList.innerHTML =
+        '<tr><td colspan="5" class="meta-text">No existing sessions found.</td></tr>';
+      return;
+    }
+
+    sessionsList.innerHTML = sessions
+      .map((session) => {
+        const sessionId = String(session?.session_id || "").trim();
+        const title = String(session?.title || "Untitled Session");
+        const status = String(session?.status || session?.location || "unknown");
+        const lastActive = formatRelativeTime(session?.last_active);
+
+        return `
+          <tr>
+            <td>${escapeHtml(title)}</td>
+            <td title="${escapeHtml(sessionId)}">${escapeHtml(sessionId)}</td>
+            <td>${escapeHtml(status)}</td>
+            <td>${escapeHtml(lastActive)}</td>
+            <td>
+              <button class="btn btn-primary btn-open-existing-session" type="button" data-session-id="${escapeHtml(sessionId)}">
+                Continue
+              </button>
+            </td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    document.querySelectorAll(".btn-open-existing-session").forEach((button) => {
+      button.addEventListener("click", () => {
+        const sessionId = String(button.getAttribute("data-session-id") || "").trim();
+        if (!sessionId) return;
+        setStoredSessionId(sessionId);
+        window.location.href = `/dashboard/${sessionId}`;
+      });
+    });
+  };
+
+  const refreshSessionsList = async () => {
+    clearFeedback(sessionFeedback);
+    try {
+      const payload = await apiGet("/api/sessions?include_archived=true");
+      renderSessionsList(payload);
+    } catch (error) {
+      setFeedback(sessionFeedback, String(error.message || error), true);
+    }
+  };
+
+  if (adminBtn) {
+    adminBtn.addEventListener("click", () => {
+      clearFeedback(adminFeedback);
+      if (adminPasswordInput) adminPasswordInput.value = "";
+      openDialog(adminDialog);
     });
   }
 
-  if (dashboardBtn) {
-    dashboardBtn.addEventListener("click", () => {
-      window.location.href = "/dashboard";
+  if (adminCancelBtn) {
+    adminCancelBtn.addEventListener("click", () => {
+      closeDialog(adminDialog);
     });
   }
 
-  if (initialiseBtn) {
-    initialiseBtn.addEventListener("click", async () => {
-      clearFeedback(feedback);
-      const count = Math.max(Number(initCount?.value || 1000), 1);
-      setButtonsDisabled(true);
-      setFeedback(feedback, "Initialise started. Waiting for completion...");
+  if (adminLoginBtn) {
+    adminLoginBtn.addEventListener("click", async () => {
+      clearFeedback(adminFeedback);
+      const password = String(adminPasswordInput?.value || "");
+      if (!password.trim()) {
+        setFeedback(adminFeedback, "Admin password is required.", true);
+        return;
+      }
 
+      adminLoginBtn.disabled = true;
+      setFeedback(adminFeedback, "Verifying...", false);
       try {
-        await apiPost(`/api/pipeline/initialise?count=${count}`);
-        setFeedback(feedback, "Initialise completed.");
-        await refreshLanding();
+        await apiPost("/api/auth/admin/login", { password });
+        closeDialog(adminDialog);
+
+        const state = latestLandingStatus?.pipeline_state || "fresh";
+        redirectAdminByState(state);
       } catch (error) {
-        setFeedback(feedback, String(error.message || error), true);
-        await refreshLanding();
+        setFeedback(adminFeedback, String(error.message || error), true);
       } finally {
-        startBusyPolling();
+        adminLoginBtn.disabled = false;
       }
     });
   }
 
-  if (resetBtn) {
-    resetBtn.addEventListener("click", async () => {
+  if (userBtn) {
+    userBtn.addEventListener("click", async () => {
       clearFeedback(feedback);
-      const { confirmed, wipeSchema } = await showResetConfirmation();
-      if (!confirmed) return;
-
-      setButtonsDisabled(true);
-      setFeedback(feedback, "Reset started...");
-
-      try {
-        await apiPost(getResetEndpointUrl(wipeSchema));
+      if (latestLandingStatus?.pipeline_state !== "initialized") {
         setFeedback(
           feedback,
-          wipeSchema
-            ? "Reset completed. Pipeline is fresh."
-            : "Reset completed. Pipeline is schema ready.",
+          "System is not initialised yet. Admin should initialize the system first",
+          "warn",
         );
-        await refreshLanding();
+        return;
+      }
+
+      clearFeedback(sessionFeedback);
+      openDialog(sessionDialog);
+      await refreshSessionsList();
+    });
+  }
+
+  if (refreshSessionsBtn) {
+    refreshSessionsBtn.addEventListener("click", refreshSessionsList);
+  }
+
+  if (createSessionBtn) {
+    createSessionBtn.addEventListener("click", async () => {
+      clearFeedback(sessionFeedback);
+      const title = String(sessionTitleInput?.value || "").trim();
+      if (!title) {
+        setFeedback(sessionFeedback, "Session title is required.", true);
+        return;
+      }
+
+      createSessionBtn.disabled = true;
+      try {
+        const payload = await apiPost("/api/sessions", { title });
+        const sessionId = String(payload?.session_id || "").trim();
+        if (!sessionId) {
+          throw new Error("Session was created but no session id was returned.");
+        }
+        setStoredSessionId(sessionId);
+        window.location.href = `/dashboard/${sessionId}`;
       } catch (error) {
-        setFeedback(feedback, String(error.message || error), true);
-        await refreshLanding();
+        setFeedback(sessionFeedback, String(error.message || error), true);
       } finally {
-        startBusyPolling();
+        createSessionBtn.disabled = false;
       }
     });
+  }
+
+  if (closeSessionBtn) {
+    closeSessionBtn.addEventListener("click", () => closeDialog(sessionDialog));
   }
 }
 
@@ -1099,18 +1219,6 @@ function setStatsRefreshedAt(variant = "success") {
   el.textContent = `${label}: ${formatClockTime(now)}`;
 }
 
-function getSystemStatusPresentation(status) {
-  if (status.pipeline_state !== "initialized")
-    return { message: "System initializing", variant: "warning" };
-  if (status.pipeline_busy)
-    return { message: "Pipeline busy", variant: "busy" };
-  return { message: "Online and ready", variant: "online" };
-}
-
-function normalizeFieldDetailsRows(rows) {
-  return Array.isArray(rows) ? rows : [];
-}
-
 function updateFieldSortButtonState() {
   document.querySelectorAll(".field-sort-btn").forEach((btn) => {
     const sortKey = btn.getAttribute("data-sort-key");
@@ -1224,12 +1332,15 @@ function renderDashboardStatsBundle(status, stats, pipelineStats) {
 
 async function refreshDashboardStats() {
   const feedback = document.getElementById("dashboard-feedback");
+  const dashboardRole = getDashboardRole();
   try {
     const [status, stats, pipelineStats, sessionsPayload] = await Promise.all([
       apiGet("/api/status"),
       apiGet("/api/stats"),
       apiGet("/api/pipeline/stats"),
-      apiGet("/api/stats/sessions").catch(() => null),
+      dashboardRole === "admin"
+        ? apiGet("/api/stats/sessions").catch(() => null)
+        : Promise.resolve(null),
     ]);
 
     const stateLabel = document.getElementById("dashboard-state");
@@ -2237,6 +2348,7 @@ async function initializeDeveloperMetricsPage() {
 
 function attachDashboardHandlers() {
   const developerModeButton = document.getElementById("btn-developer-mode");
+  const adminLogoutButton = document.getElementById("btn-admin-logout");
   const fetchToggle = document.getElementById("btn-fetch-more-toggle");
   const fetchForm = document.getElementById("fetch-form-inline");
   const runFetchButton = document.getElementById("btn-run-fetch");
@@ -2257,6 +2369,17 @@ function attachDashboardHandlers() {
       persistDeveloperModeSetting(!developerModeEnabled);
       applyDeveloperModeUi();
       await refreshDashboardStats();
+    });
+  }
+
+  if (adminLogoutButton) {
+    adminLogoutButton.addEventListener("click", async () => {
+      try {
+        await apiPost("/api/auth/admin/logout");
+      } catch {
+        // Best-effort logout; redirect even if request fails.
+      }
+      window.location.href = "/";
     });
   }
 
@@ -2454,6 +2577,8 @@ function attachDashboardHandlers() {
 }
 
 async function initializeDashboard() {
+  syncSessionIdFromDashboardPath();
+
   const operationSelect = document.getElementById("query-operation");
   const downloadButton = document.getElementById("btn-download-json");
   const columnSortSelect = document.getElementById("query-column-sort");

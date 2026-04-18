@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Pipeline Landing</title>
+    <title>Welcome</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
@@ -12,9 +12,9 @@
 <body>
     <main class="page-shell">
         <section class="status-card landing-card">
-            <p class="eyebrow">Single Project Lifecycle</p>
-            <h1>Reset Or Resume</h1>
-            <p class="subtitle">One project, one pipeline. Choose the next valid step from current state.</p>
+            <p class="eyebrow">Session Manager</p>
+            <h1>Welcome</h1>
+            <p class="subtitle">Choose your role to continue. Admin manages pipeline lifecycle. User works inside a specific session.</p>
 
             <div class="state-row">
                 <span>Current pipeline state</span>
@@ -25,44 +25,77 @@
             <p id="external-api-warning" class="warning hidden" role="alert">
                 External API is unreachable. Run <strong>docker compose up -d</strong> before using pipeline endpoints.
             </p>
+            <p id="user-lock-message" class="warning hidden" role="alert">System is not initialised yet. Admin should initialize the system first.</p>
 
-            <div class="count-row" id="init-count-row">
-                <label for="init-count">Initialise record count</label>
-                <input id="init-count" type="number" min="1" value="1000">
-            </div>
-
-            <div class="action-grid">
-                <button id="btn-setup" class="btn btn-primary hidden" type="button">Set Up Schema</button>
-                <button id="btn-initialise" class="btn btn-primary hidden" type="button">Run Initialise</button>
-                <button id="btn-dashboard" class="btn btn-primary hidden" type="button">Continue to Dashboard</button>
-                <button id="btn-reset" class="btn btn-danger" type="button">Reset Everything</button>
+            <div class="action-grid role-grid">
+                <button id="btn-role-admin" class="btn btn-primary" type="button">I am Admin</button>
+                <button id="btn-role-user" class="btn" type="button">I am User</button>
             </div>
 
             <p id="landing-message" class="feedback hidden" role="status"></p>
         </section>
 
-        <!-- Custom Reset Dialog -->
-        <dialog id="reset-dialog" class="custom-modal">
+        <dialog id="admin-dialog" class="custom-modal">
             <div class="modal-content">
-                <h2>Reset Environment?</h2>
-                <p>This will drop all database tables and clear runtime records. This action cannot be undone.</p>
-                
-                <div class="modal-options">
-                    <label class="checkbox-container">
-                        <input type="checkbox" id="wipe-schema-check">
-                        <span class="checkmark"></span>
-                        Also delete the existing initial_schema.json
-                    </label>
+                <h2>Admin Login</h2>
+                <p>Enter admin password to continue.</p>
+
+                <div class="count-row">
+                    <label for="admin-password">Password</label>
+                    <input id="admin-password" type="password" autocomplete="current-password">
+                </div>
+                <p id="admin-login-feedback" class="feedback hidden" role="status"></p>
+
+                <div class="modal-actions">
+                    <button id="btn-admin-cancel" type="button" class="btn">Cancel</button>
+                    <button id="btn-admin-login" type="button" class="btn btn-primary">Continue</button>
+                </div>
+            </div>
+        </dialog>
+
+        <dialog id="session-dialog" class="custom-modal">
+            <div class="modal-content">
+                <h2>Choose Session</h2>
+                <p>Create a new session or continue from an existing one.</p>
+
+                <div class="count-row">
+                    <label for="new-session-title">New session title</label>
+                    <input id="new-session-title" type="text" maxlength="120" placeholder="e.g., April Benchmark Session">
                 </div>
 
                 <div class="modal-actions">
-                    <button id="btn-reset-cancel" type="button" class="btn btn-secondary">Cancel</button>
-                    <button id="btn-reset-confirm" type="button" class="btn btn-danger">Reset Everything</button>
+                    <button id="btn-create-session" type="button" class="btn btn-primary">Create New Session</button>
+                    <button id="btn-refresh-sessions" type="button" class="btn">Refresh Sessions</button>
+                </div>
+
+                <div class="result-table-wrap session-table-wrap">
+                    <table class="result-table session-table">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>Session ID</th>
+                                <th>Status</th>
+                                <th>Last Active</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="existing-sessions-list">
+                            <tr>
+                                <td colspan="5" class="meta-text">Loading sessions...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <p id="session-dialog-feedback" class="feedback hidden" role="status"></p>
+
+                <div class="modal-actions">
+                    <button id="btn-session-cancel" type="button" class="btn">Close</button>
                 </div>
             </div>
         </dialog>
     </main>
-    <!-- Progress Bar Overlay -->
+
     <div id="progress-wrap" class="progress-overlay hidden" role="status" aria-live="polite">
         <div class="progress-modal">
             <p id="progress-label" class="progress-label">Running...</p>
