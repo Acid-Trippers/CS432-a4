@@ -14,11 +14,15 @@ These commands are the primary Docker-first setup flow.
 
 1. Install Python dependencies.
 
+Prefer creating and activating a virtual environment (`venv`) before running `pip install -r requirements.txt`.
+
 ```powershell
 pip install -r requirements.txt
 ```
 
 2. Start backend services (PostgreSQL, MongoDB, ingestion API, pipeline container).
+
+Make sure Docker Desktop is open and the Docker engine is running before this step.
 
 ```powershell
 docker-compose up -d
@@ -35,6 +39,8 @@ python dashboard/run.py
 ```text
 http://127.0.0.1:8080/
 ```
+
+Default admin password for setup/login: `admin123`.
 
 ## Assignment Deliverables Coverage
 

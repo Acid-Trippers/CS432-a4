@@ -28,6 +28,7 @@ from src.phase_6.transaction_coordinator import TransactionCoordinator
 
 
 BASE_DIR = Path(__file__).resolve().parent
+SAMPLE_SCHEMA_FILE = BASE_DIR.parent / "examples" / "sample_schema.json"
 
 
 @asynccontextmanager
@@ -117,6 +118,15 @@ async def setup(request: Request):
             }
         }
     }
+
+    if SAMPLE_SCHEMA_FILE.exists():
+        try:
+            with open(SAMPLE_SCHEMA_FILE, "r", encoding="utf-8") as schema_file:
+                loaded_schema = json.load(schema_file)
+                if isinstance(loaded_schema, dict):
+                    schema_payload = loaded_schema
+        except Exception:
+            pass
 
     if os.path.exists(INITIAL_SCHEMA_FILE):
         try:
