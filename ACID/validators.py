@@ -114,20 +114,38 @@ def _fresh_visibility_probe(record_id: int) -> tuple[bool, bool]:
 
 
 def _best_effort_cleanup_with_fresh_connections(record_id: int):
-    try:
-        sql_probe = SQLEngine()
-        sql_probe.initialize()
-        s = sql_probe.schema_builder.get_session()
+    for attempt in range(2):
+        sql_probe = None
+        session = None
         try:
-            s.execute(
+            sql_probe = SQLEngine()
+            sql_probe.initialize()
+            if sql_probe.schema_builder.engine is not None:
+                sql_probe.schema_builder.engine.dispose()
+            session = sql_probe.schema_builder.get_session()
+            session.execute(
                 text("DELETE FROM main_records WHERE record_id = :record_id"),
                 {"record_id": record_id},
             )
-            s.commit()
+            session.commit()
+            break
+        except Exception:
+            if session is not None:
+                try:
+                    session.rollback()
+                except Exception:
+                    pass
+            if attempt == 0:
+                time.sleep(1)
+                continue
         finally:
-            s.close()
-    except Exception:
-        pass
+            if session is not None:
+                session.close()
+            if sql_probe is not None:
+                try:
+                    sql_probe.close()
+                except Exception:
+                    pass
 
     try:
         probe_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
@@ -503,7 +521,7 @@ def durability_test(crash_check: bool = False):
 
     try:
         _set_counter(original_counter)
-        _cleanup(original_counter)
+        _best_effort_cleanup_with_fresh_connections(original_counter)
 
         create_result = _run_create("durability_commit")
         record_id = (create_result.get("details") or {}).get("record_id")
@@ -612,4 +630,5 @@ def durability_test(crash_check: bool = False):
     finally:
         if record_id is not None:
             _best_effort_cleanup_with_fresh_connections(record_id)
+        _best_effort_cleanup_with_fresh_connections(original_counter)
         _set_counter(original_counter)
